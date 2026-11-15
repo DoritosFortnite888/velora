@@ -1,8 +1,13 @@
 // Tests for the pure logic: safety rules, prompt limits, card import, examples.
 // Run with:  node tests/run-tests.mjs   (or: npm test)
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { suggestsMinor, AGE_GATE, roleplayRules } from '../js/core/safety.js';
-import { clip, buildChatMessages, buildSummaryMessages } from '../js/core/prompt.js';
+import * as configModule from '../js/core/config.js';
+import {
+  clip, buildChatMessages, buildSummaryMessages, buildRollingSummaryMessages, rollingSummaryStep,
+} from '../js/core/prompt.js';
 import {
   parsePasted, parseObject, parseCardFile, cardToCharacter, replaceMacros, taglineOf,
   isPNG,
@@ -11,10 +16,14 @@ import { loadExampleCards, exampleToCharacter } from '../js/core/examples.js';
 import { starterCharacters } from '../js/core/starters.js';
 import { newCharacterRecord } from '../js/core/characters.js';
 import { timeAgo, initialsOf, hueFromString } from '../js/core/util.js';
-import { intensityLevel, contentMode, personaSection, replyLength, NATURAL_STYLE, ADULT_MIN_AGE } from '../js/core/persona.js';
+import { intensityLevel, contentMode, personaSection, replyLength, NATURAL_STYLE, CONTINUITY_RULES, ADULT_MIN_AGE } from '../js/core/persona.js';
 import { parseLine, parseRoleplay, renderRoleplayHTML, cleanReply, ACTION_MAX_CHARS } from '../js/core/format.js';
 import { upgradeCharacter, FICTIONAL_AGES } from '../js/core/migrate.js';
-import { LENGTHS, PERSONALITY_TRAITS } from '../js/core/config.js';
+import {
+  LENGTHS, PERSONALITY_TRAITS, MODELS, DEFAULT_MODEL_ID, LIMITS,
+  INFERENCE, MEMORY_KINDS, MEMORY_KIND_WEIGHT,
+} from '../js/core/config.js';
+import { selectMemoryLines, isDuplicateMemory, wordsOf, normalizeMemoryText, stemWord } from '../js/core/memory.js';
 
 let passed = 0;
 let failed = 0;
@@ -440,6 +449,282 @@ test('every built-in character has an adult age', () => {
   for (const age of Object.values(FICTIONAL_AGES)) assert.ok(age >= ADULT_MIN_AGE);
   for (const starter of starterCharacters()) assert.equal(starter.statedAge >= 18, true, starter.name);
   for (const card of loadExampleCards()) assert.equal(exampleToCharacter(card).statedAge >= 18, true, card.name);
+});
+
+// ---------------------------------------------------------------------------
+// v1.2: memory relevance, pinning, editing rules, continuity, timing, models
+// ---------------------------------------------------------------------------
+console.log('\nMemory selection and de-duplication');
+
+test('a memory about what the user is discussing is chosen over an unrelated one', () => {
+  const memories = [
+    { text: 'My cat is named Biscuit', kind: 'fact' },       // oldest
+    { text: 'I like sailing on weekends', kind: 'fact' },    // newest
+  ];
+  const lines = selectMemoryLines(memories, { query: 'tell me about Biscuit the cat', limit: 1 });
+  assert.deepEqual(lines, ['- My cat is named Biscuit']);
+});
+
+test('a pinned memory is always chosen, even when nothing in the chat matches it', () => {
+  const memories = [
+    { text: 'I am allergic to peanuts', kind: 'fact', pinned: true }, // oldest, but pinned
+    ...Array.from({ length: 6 }, (_, i) => ({ text: `Unrelated note ${i}`, kind: 'event' })),
+  ];
+  const lines = selectMemoryLines(memories, { query: 'what should we watch tonight', limit: 2 });
+  assert.ok(lines.includes('- I am allergic to peanuts'));
+});
+
+test('chosen memories are shown in the order they were written', () => {
+  const memories = [
+    { text: 'First we met at the market', kind: 'event' },
+    { text: 'Later you gave me a scarf', kind: 'event' },
+    { text: 'Most recently we went hiking', kind: 'event' },
+  ];
+  const lines = selectMemoryLines(memories, { query: 'market scarf hiking', limit: 3 });
+  assert.deepEqual(lines, [
+    '- First we met at the market',
+    '- Later you gave me a scarf',
+    '- Most recently we went hiking',
+  ]);
+});
+
+test('the memory count and character budget are both respected', () => {
+  const memories = Array.from({ length: 30 }, (_, i) => ({ text: `${'word '.repeat(19)}${i}`, kind: 'event' }));
+  const lines = selectMemoryLines(memories, { limit: 12, charBudget: 300 });
+  assert.ok(lines.length <= 12);
+  assert.ok(lines.reduce((total, line) => total + line.length + 1, 0) <= 300);
+});
+
+test('empty memories are ignored and long memories are shortened', () => {
+  const lines = selectMemoryLines([{ text: '   ' }, { text: 'x'.repeat(500) }], { limit: 5, charBudget: 1000 });
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].length <= 203, `line too long: ${lines[0].length}`);
+  assert.ok(lines[0].endsWith('...'));
+});
+
+test('words are compared without case, punctuation or common words', () => {
+  const words = wordsOf('The Cat, and the DOG!');
+  assert.ok(words.has('cat') && words.has('dog'));
+  assert.ok(!words.has('the') && !words.has('and'));
+  assert.equal(normalizeMemoryText('  I LIKE tea. '), 'i like tea');
+});
+
+test('the same memory, or a near-identical rewording, is a duplicate', () => {
+  const existing = [{ text: 'I like tea.' }];
+  assert.equal(isDuplicateMemory('i like tea', existing), true);
+  assert.equal(isDuplicateMemory('I like tea and coffee', existing), false);
+  assert.equal(isDuplicateMemory('I work nights at the bakery.', [{ text: 'I work nights at the bakery' }]), true);
+  assert.equal(isDuplicateMemory('I moved to Leeds', existing), false);
+});
+
+test('an empty memory counts as a duplicate, so it is never saved', () => {
+  assert.equal(isDuplicateMemory('   ', []), true);
+});
+
+test('only the memories that match the chat reach the prompt', () => {
+  const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 30 });
+  const memories = [
+    { text: 'Their dog is called Rex', kind: 'fact' },
+    ...Array.from({ length: 20 }, (_, i) => ({ text: `Unrelated filler note number ${i}`, kind: 'event' })),
+  ];
+  const messages = buildChatMessages({
+    character, history: [{ isFromUser: true, text: 'How is Rex doing today?' }], memories,
+    contextTokens: 4096, replyTokens: 400,
+  });
+  assert.ok(messages[0].content.includes('Their dog is called Rex'));
+});
+
+console.log('\nPrompt continuity and honesty about memory');
+
+test('the prompt says not to invent shared history and not to contradict the chat', () => {
+  const character = newCharacterRecord({ name: 'Mira' });
+  const messages = buildChatMessages({
+    character, history: [{ isFromUser: true, text: 'hi' }], memories: [{ text: 'Likes tea' }],
+    contextTokens: 4096, replyTokens: 400,
+  });
+  const system = messages[0].content;
+  assert.ok(system.includes('Do not invent other shared history'));
+  assert.ok(system.includes('Do not contradict'));
+  assert.ok(CONTINUITY_RULES.includes('Continuity:'));
+});
+
+test('continuity rules come before the safety rules, which stay last', () => {
+  const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 30 });
+  const system = buildChatMessages({
+    character, history: [{ isFromUser: true, text: 'hi' }], memories: [],
+    contextTokens: 4096, replyTokens: 400,
+  })[0].content;
+  assert.ok(system.indexOf('Continuity:') < system.indexOf('Roleplay rules:'));
+  assert.ok(system.trimEnd().endsWith(roleplayRules('friendly').split('\n').at(-1)));
+});
+
+test('the memory summary prompt lists existing notes so they are not written again', () => {
+  const character = newCharacterRecord({ name: 'Mira' });
+  const [system] = buildSummaryMessages({
+    character,
+    transcript: [{ isFromUser: true, text: 'I drink tea every morning.' }],
+    existing: [{ text: 'Drinks tea every morning' }],
+    contextTokens: 4096, replyTokens: 200,
+  });
+  assert.ok(system.content.includes('Drinks tea every morning'));
+  assert.ok(system.content.includes('do not repeat them'));
+});
+
+test('the style guide asks for quoted speech with actions in asterisks', () => {
+  assert.ok(NATURAL_STYLE.includes('double quotes'));
+  assert.ok(NATURAL_STYLE.includes('*glances away*'));
+});
+
+test('the style guide asks the character not to mention being an AI unless asked', () => {
+  assert.ok(NATURAL_STYLE.includes('unless the user sincerely asks'));
+  assert.ok(NATURAL_STYLE.includes('Never talk like an assistant'));
+});
+
+test('replies are told to answer the latest message and to use actions only when they fit', () => {
+  assert.ok(NATURAL_STYLE.includes('Answer what the user just said first'));
+  assert.ok(NATURAL_STYLE.includes('Use an action only when the moment calls for one'));
+});
+
+console.log('\nNo artificial waiting');
+
+test('there is no artificial reply timer any more, so replies start as soon as the model is ready', () => {
+  assert.equal('RESPONSE_DELAYS' in configModule, false, 'the 3 and 5 second pauses were removed');
+  assert.equal('DEFAULT_RESPONSE_DELAY' in configModule, false);
+});
+
+test('the timing module is gone', () => {
+  assert.equal(existsSync(fileURLToPath(new URL('../js/core/timing.js', import.meta.url))), false);
+});
+
+console.log('\nModels and generation settings');
+
+test('the default model is still Qwen2.5 0.5B, so existing installs keep working', () => {
+  assert.equal(DEFAULT_MODEL_ID, 'qwen2.5-0.5b');
+  assert.equal(MODELS[0].id, DEFAULT_MODEL_ID);
+  assert.equal(new Set(MODELS.map((m) => m.id)).size, MODELS.length, 'model ids must be unique');
+});
+
+test('the Llama 3.2 1B model is the recommended choice for iPhone 14 and is marked untested', () => {
+  const rec = MODELS.filter((m) => m.recommended);
+  assert.equal(rec.length, 1, 'exactly one recommended model');
+  assert.equal(rec[0].id, 'llama-3.2-1b');
+  assert.equal(rec[0].untested, true);
+});
+
+test('the 3B model is flagged as likely too large for an iPhone 14', () => {
+  const big = MODELS.find((m) => m.id === 'llama-3.2-3b');
+  assert.ok(big, 'the 3B model is offered');
+  assert.equal(big.highMemory, true);
+  assert.ok(big.vramMB > MODELS.find((m) => m.id === 'llama-3.2-1b').vramMB);
+});
+
+test('every model states its download size and licence, with WebLLM ids in the expected form', () => {
+  for (const m of MODELS) {
+    for (const key of ['displayName', 'summary', 'sizeNote', 'license', 'intelligence', 'speed', 'webllmIdF16', 'webllmIdF32', 'contextWindow']) {
+      assert.ok(m[key], `${m.id} is missing ${key}`);
+    }
+    assert.ok(Number.isFinite(m.downloadMB) && m.downloadMB > 0, `${m.id} has no download size`);
+    assert.match(m.webllmIdF16, /-q4f16_1-MLC$/, `${m.id} f16 id`);
+    assert.match(m.webllmIdF32, /-q4f32_1-MLC$/, `${m.id} f32 id`);
+  }
+});
+
+test('Llama models state the Meta licence, not Apache', () => {
+  for (const m of MODELS.filter((x) => x.id.startsWith('llama'))) {
+    assert.match(m.license, /Llama 3\.2 Community License/);
+  }
+});
+
+test('stemming makes simple plurals and endings match', () => {
+  assert.equal(stemWord('trips'), 'trip');
+  assert.equal(stemWord('walked'), 'walk');
+  assert.equal(stemWord('dancing'), 'danc');
+  assert.equal(stemWord('glass'), 'glass', 'words ending in ss are kept');
+  assert.ok(wordsOf('We went on trips').has('trip'));
+});
+
+test('a memory about trips is chosen for a message about a trip', () => {
+  const lines = selectMemoryLines(
+    [{ text: 'Loves going on trips to the coast', kind: 'preference', pinned: false }],
+    { query: 'I took a trip last week', limit: 5, charBudget: 500 },
+  );
+  assert.equal(lines.length, 1);
+});
+
+test('the rolling summary waits until enough messages have left the prompt window', () => {
+  const make = (n) => Array.from({ length: n }, (_, i) => ({ id: String(i), isFromUser: i % 2 === 0, text: `m${i}` }));
+  assert.equal(rollingSummaryStep(make(LIMITS.maxHistoryMessages), 0), null, 'nothing has left the window');
+  const almost = LIMITS.maxHistoryMessages + LIMITS.rollingSummaryBatch - 1;
+  assert.equal(rollingSummaryStep(make(almost), 0), null, 'not enough dropped yet');
+});
+
+test('the rolling summary covers dropped messages in chunks, oldest first, and never repeats them', () => {
+  const make = (n) => Array.from({ length: n }, (_, i) => ({ id: String(i), isFromUser: i % 2 === 0, text: `m${i}` }));
+  const total = LIMITS.maxHistoryMessages + LIMITS.rollingSummaryBatch;
+  const first = rollingSummaryStep(make(total), 0);
+  assert.equal(first.from, 0);
+  assert.equal(first.to, LIMITS.rollingSummaryBatch);
+  assert.equal(first.transcript[0].text, 'm0');
+  assert.equal(rollingSummaryStep(make(total), first.to), null, 'already covered');
+  const big = rollingSummaryStep(make(LIMITS.maxHistoryMessages + 200), 0);
+  assert.equal(big.to - big.from, LIMITS.rollingSummaryChunk, 'one update reads at most one chunk');
+});
+
+test('the rolling summary prompt includes the existing summary and the new messages', () => {
+  const character = { name: 'Mira' };
+  const messages = buildRollingSummaryMessages({
+    character,
+    previous: 'The user lost their keys.',
+    transcript: [{ isFromUser: true, text: 'I found them!' }],
+    contextTokens: 4096,
+    replyTokens: LIMITS.rollingSummaryTokens,
+  });
+  assert.equal(messages.length, 2);
+  assert.ok(messages[1].content.includes('The user lost their keys.'));
+  assert.ok(messages[1].content.includes('I found them!'));
+  assert.ok(messages[0].content.includes('Do not invent anything'));
+});
+
+test('a chat summary of older messages is added to the prompt and stays consistent with the chat', () => {
+  const character = { id: 'c1', name: 'Mira', ageGate: 'unconfirmed', personalityTraits: [], roleStyle: 'balanced' };
+  const history = [{ id: 'a', isFromUser: true, text: 'Hi' }];
+  const messages = buildChatMessages({
+    character,
+    history,
+    memories: [],
+    chatSummary: 'Last week the user promised to visit the lighthouse.',
+    contextTokens: 4096,
+    replyTokens: 180,
+    lengthGuide: LENGTHS.short.guide,
+  });
+  assert.ok(messages[0].content.includes('Earlier in this chat'));
+  assert.ok(messages[0].content.includes('visit the lighthouse'));
+});
+
+test('without a chat summary the prompt has no empty summary section', () => {
+  const character = { id: 'c1', name: 'Mira', ageGate: 'unconfirmed', personalityTraits: [], roleStyle: 'balanced' };
+  const messages = buildChatMessages({
+    character,
+    history: [{ id: 'a', isFromUser: true, text: 'Hi' }],
+    memories: [],
+    contextTokens: 4096,
+    replyTokens: 180,
+    lengthGuide: LENGTHS.short.guide,
+  });
+  assert.equal(messages[0].content.includes('Earlier in this chat'), false);
+});
+
+test('generation settings favour coherence and keep the repetition penalties', () => {
+  assert.ok(INFERENCE.temperature > 0 && INFERENCE.temperature <= 0.85);
+  assert.ok(INFERENCE.topP > 0 && INFERENCE.topP <= 1);
+  assert.ok(INFERENCE.frequencyPenalty > 0);
+});
+
+test('every memory kind has a label and a weight, and the older kinds are still there', () => {
+  for (const key of Object.keys(MEMORY_KINDS)) {
+    assert.ok(MEMORY_KIND_WEIGHT[key] !== undefined, `no weight for ${key}`);
+  }
+  for (const old of ['fact', 'event', 'promise', 'summary']) assert.ok(MEMORY_KINDS[old], old);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

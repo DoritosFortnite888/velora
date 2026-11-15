@@ -140,6 +140,15 @@ export function saveMemory(memory) {
 export function deleteMemory(id) {
   return write('memories', (s) => s.delete(id));
 }
+// Removes every memory for one character. Chats and the character itself are kept.
+export async function deleteMemoriesFor(characterId) {
+  const memories = await listMemories(characterId);
+  if (memories.length === 0) return 0;
+  await run(['memories'], 'readwrite', (tx) => {
+    for (const memory of memories) tx.objectStore('memories').delete(memory.id);
+  });
+  return memories.length;
+}
 
 // ---------- Settings ----------
 

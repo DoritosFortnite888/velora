@@ -33,6 +33,73 @@ The stub AI library in the browser test returns fake replies. It proves Velora's
 - **Action formatting depends on the model using asterisks.** Velora shows *asterisk actions* in italics. If a model writes actions some other way, they appear as normal text.
 - **Velora cannot stop a model from narrating your actions.** Its style guide asks the model not to, but it may still do it.
 
+## Version 1.3: models, chat summaries and no artificial waiting
+
+**Read this first.** No model in this version has been run on an iPhone 14 by this project, and the figures below come from WebLLM's own published memory numbers and third-party reports. The most useful evidence we found is a third-party report of an iPhone 11 Pro Max on iOS 26-era Safari: Qwen2.5 1.5B failed to load after downloading, and Llama 3.2 1B reached generation before Safari reloaded the page mid-reply. Those results suggest that a 1B model is at the edge of what an iPhone can run, and that the 3B model is likely out of reach. We have not reproduced those results ourselves.
+
+- **Models.** The default stays Qwen2.5 0.5B so existing installs keep working. Llama 3.2 1B is marked as the best fit for an iPhone 14, and Llama 3.2 3B as likely too large. Both Llama models are under the Meta Llama 3.2 Community License. Their WebLLM ids (`Llama-3.2-1B-Instruct-q4f16_1-MLC`, `Llama-3.2-3B-Instruct-q4f16_1-MLC` and their q4f32 builds) appear in third-party copies of WebLLM's prebuilt list. They were not checked against the exact 0.2.79 build this project pins, so the app still checks each id before downloading and explains a missing one. WebLLM's latest release at the time of writing was newer than the pinned 0.2.79. The pin was kept, so an update cannot change behaviour without a test.
+- **Sizes and memory are estimates.** The download sizes (about 300 MB, 900 MB, 1 GB and 1.8 GB) are estimates from third-party reports. The memory figures for the 1B and 3B models (879 MB and 2264 MB) are WebLLM's own published values. Check the model card on Hugging Face before a large download.
+- **Cancelling does not stop the network request.** WebLLM does not expose a way to abort the files it is fetching. Cancel stops Velora waiting, and frees the model once the current load finishes. The browser may finish downloading the current file in the background. Files already saved are reused the next time. Close Safari's tab to stop all network use.
+- **Only one download runs at a time**, and nothing downloads without a tap and a confirmation. Chat does not download files that Safari has cleared. If the library can report its cache (`hasModelInCache`), Velora asks you to download again. If it cannot, Velora cannot prevent the library from fetching the files itself, so check the AI models page after clearing storage.
+- **Interrupted loads are detected.** Velora records when a model load starts and clears the record when it finishes. If Safari reloads the page during a load, the AI models page shows a notice and suggests a smaller model.
+- **Switching models frees GPU memory** for the previous model. It does not delete its files.
+- **No artificial waiting.** The 3 and 5 second pauses from version 1.2 are removed, because they are not a real delay. A reply starts when the model is ready. The only wait now is the model's own loading time.
+- **Rolling chat summary.** After a reply, Velora may ask the model to update a short summary of messages that have left the prompt window. It is updated in small batches and read back in later prompts. It is written by the same small model, so it can be wrong or incomplete. The summary is shown to you nowhere, so check replies if something important seems to be forgotten.
+- **Memory matching is still word-based.** Version 1.3 adds a very simple stemmer, so "trips" matches "trip". It still does not understand meaning, so pin important memories.
+- **Generation quality is not measured.** No model was scored for roleplay quality, consistency or repetition. The character tests in the repository check Velora's own prompts, not the model's replies.
+
+### What was tested for version 1.3
+
+| Area | How it was checked |
+|---|---|
+| Model list: default kept, recommended model, large-model flag, sizes, licences, WebLLM id format | `npm test` (automatic) |
+| No artificial reply timer, and the timing module removed | `npm test` (automatic) |
+| Word stemming in memory matching | `npm test` (automatic) |
+| Rolling summary: when it is due, chunking, no repeats, prompt contents | `npm test` (automatic) |
+| Chat summary is included in the prompt only when it exists | `npm test` (automatic) |
+| Imports, exports, icon names and syntax of every file | `tests/check-static.mjs` (automatic) |
+| Models page, download, cancel, delete, switching, and the notice for interrupted loads | Written, but **not run**. `tests/browser-smoke.mjs` needs Chromium, which was not available in the development environment. |
+| **Real model download, load and reply on a phone** | **Not tested.** |
+| **Llama 3.2 1B on iPhone 14** | **Not tested.** |
+| **Llama 3.2 3B on iPhone 14** | **Not tested. Expected to fail.** |
+| **Offline use after downloading, on iPhone 14** | **Not tested.** |
+| **Real model remembering earlier messages through a rolling summary** | **Not tested.** |
+
+## Version 1.2: memory, conversation and model choice
+
+**Read this first.** Velora's rules and prompts can help a model stay on track. They cannot make a small model understand more than it can. The default model (Qwen2.5 0.5B) is small. It will still drift, repeat itself, or forget details from earlier in a long chat. The 1.5B model is optional and may follow conversations more closely, but it has not been run on a real device by this project. In version 1.3 the Llama 3.2 1B model is the recommended alternative for an iPhone 14, and it is also untested.
+
+- **Conversation understanding depends on the model.** Velora now sends the most recent 20 messages (where they fit the context window), the newest message always included, and rules telling the model to answer the latest message, stay consistent with the chat, and not invent events. These help, but they are instructions, not guarantees.
+- **Memory selection is word matching, not meaning.** A memory is chosen when its words overlap with the last few messages. If you describe something in different words from the saved memory, it may not be chosen. Pin a memory to make sure it is always sent.
+- **Memory notes are written by the same model.** They may be incomplete or wrong. Duplicates are skipped, but a wrong note is still saved until you edit or delete it.
+- **Pinned and matching memories are only as good as their text.** Keep them short and specific. Long memories are cut to 200 characters in the prompt, and only about 700 characters of memories are sent in total.
+- **Reply timing (removed in 1.3).** The 3 and 5 second pauses from version 1.2 were removed in version 1.3, because they were not a real delay.
+- **Generation settings are not tested on a real model.** The temperature and top-p values were chosen to favour coherence. They may need adjusting after real use.
+- **No hidden reasoning.** Velora does not perform any extra reasoning step before a reply. It prepares the prompt and then streams the model's answer.
+- **The 1.5B model is not yet proven.** Its WebLLM model ids were not checked against the live WebLLM list in this development environment. The app checks the ids before a download and explains a problem if one is missing. It may not load on older iPhones or on Windows computers with small graphics cards. It is marked as untested on the Profile page.
+- **Choosing a model never downloads it.** Only the model you choose is downloaded, and only when you tap Download. Switching models does not delete the other model's files.
+
+### What was tested for version 1.2
+
+| Area | How it was checked |
+|---|---|
+| Memory selection (relevance, pinning, order, limits, empty and long memories) | `npm test` (automatic) |
+| Duplicate detection for memories and memory notes | `npm test` (automatic) |
+| Prompt contains only selected memories, continuity rules, and the rule against invented history | `npm test` and `tests/browser-smoke.mjs` |
+| Quoted speech and asterisk actions in the style guide | `npm test` and `tests/browser-smoke.mjs` |
+| Reply timing choices, defaults and the countdown (removed in 1.3) | Earlier tests, now replaced by a check that the timer is gone |
+| Stopping a reply during preparation leaves no empty reply | `tests/browser-smoke.mjs` |
+| Editing, pinning, deleting, and clearing memories; memories surviving a page reload | `tests/browser-smoke.mjs` (Chromium, with the stub AI library) |
+| Choosing a model does not download it; the choice is shown | `tests/browser-smoke.mjs` |
+| Existing characters, chats and memories still load (no database version change) | `tests/browser-smoke.mjs`, and the earlier v1.1 flows |
+| Layout of the memories and profile screens (phone-sized) | Screenshots taken in Chromium; reviewed by eye |
+| **Real model remembering earlier messages or understanding references** | **Not tested. Needs a real model on a real device.** |
+| **Real model keeping a personality over a long chat** | **Not tested.** |
+| **Memory surviving a full app close, not just a reload** | **Not tested on a phone.** |
+| **1.5B model loading and running on a real device** | **Not tested.** |
+
+The automatic tests check Velora's own logic. They cannot judge how well a real model writes. Please try a few real conversations on your own device and use **Regenerate**, pins and edits when a reply goes wrong.
+
 ## Known limitations on iPhone (Safari)
 
 1. **WebGPU needs iOS 26 and a Safari that offers it.** Older iOS versions cannot run the model. The Profile page explains this.

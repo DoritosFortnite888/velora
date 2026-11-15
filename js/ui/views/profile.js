@@ -1,9 +1,8 @@
 import * as db from '../../data/db.js';
-import { APP_VERSION, APP_NAME, DEVICE } from '../../core/config.js';
+import { APP_VERSION, APP_NAME, DEVICE, MODELS } from '../../core/config.js';
 import { formatMB } from '../../core/util.js';
 import { getDeviceReport } from '../../ai/device.js';
-import { selectedSpec, downloadRecord, downloadModel, removeModel } from '../../ai/model-store.js';
-import { resolveModelId, isModelLoaded } from '../../ai/engine.js';
+import { selectedSpec, modelStatus, removeModel } from '../../ai/model-store.js';
 import { esc, pageHeader, notice, toast, confirmAction, ICON } from '../dom.js';
 import { seedStartersIfEmpty } from '../../data/db.js';
 import { starterCharacters } from '../../core/starters.js';
@@ -27,15 +26,7 @@ function deviceRows(r) {
 export async function renderProfile() {
   const report = await getDeviceReport();
   const spec = await selectedSpec();
-  const record = await downloadRecord(spec);
-  const downloaded = !!record?.downloadedAt;
-  const loaded = isModelLoaded(resolveModelId(spec, report.hasF16));
-
-  const statusText = loaded
-    ? 'Downloaded and loaded in memory. Ready to chat.'
-    : downloaded
-      ? 'Downloaded. It loads into memory when you first chat.'
-      : 'Not downloaded yet. Download it once while you have Wi-Fi.';
+  const status = await modelStatus(spec);
 
   const deviceNotice = report.ok
     ? notice('ok', `${ICON.check}<p>This device passes the basic checks. These checks are estimates. The model can still fail to load on a device that passes them.</p>`)
@@ -53,21 +44,12 @@ export async function renderProfile() {
       </section>
 
       <section class="panel">
-        <div class="panel-head">${ICON.download}<h2>AI model</h2></div>
-        <div class="model-card">
-          <strong>${esc(spec.displayName)}</strong>
-          <p class="muted">${esc(spec.summary)}</p>
-          <small class="muted">Licence: ${esc(spec.license)}. Runs fully on this device. Conversations are never sent to a server.</small>
-        </div>
-        <p class="status-line" id="model-status">${esc(statusText)}</p>
-        <div class="progress" id="progress" hidden><div class="progress__bar" id="progress-bar"></div></div>
-        <p class="muted small" id="progress-text" hidden></p>
+        <div class="panel-head">${ICON.download}<h2>AI models</h2></div>
+        <p class="muted">Selected: <strong>${esc(spec.displayName)}</strong>. ${status.downloaded ? (status.loaded ? 'Downloaded and in memory.' : 'Downloaded.') : 'Not downloaded yet.'}</p>
+        <p class="muted small">Choose, download, cancel, delete or switch models on the AI models page. Nothing downloads until you tap Download and confirm the size.</p>
         <div class="btn-row">
-          <button class="btn btn--primary" id="download" type="button" ${report.ok ? '' : 'disabled'}>${downloaded ? 'Check model files' : 'Download model'}</button>
-          <button class="btn btn--danger" id="remove" type="button" ${downloaded ? '' : 'disabled'}>Delete model files</button>
+          <a class="btn btn--primary" href="#/models">Manage AI models</a>
         </div>
-        <p class="note">The model is downloaded once and then kept on this device. Safari may clear it if your phone runs short of space. If that happens, Velora downloads it again the next time you chat.</p>
-        <p class="note">Offline use is not guaranteed yet. After downloading, test it with Airplane Mode on. The steps are in docs/IPHONE_INSTALL.md.</p>
       </section>
 
       <section class="panel">
@@ -95,13 +77,13 @@ export async function renderProfile() {
 
       <section class="panel panel--danger">
         <h2>Erase everything</h2>
-        <p class="muted">Deletes every character, chat, memory and setting stored by Velora on this device. The downloaded model files are also removed.</p>
+        <p class="muted">Deletes every character, chat, memory and setting stored by Velora on this device. All downloaded model files are also removed.</p>
         <button class="btn btn--danger" id="erase" type="button">${ICON.trash} Erase everything</button>
       </section>
 
       <section class="panel">
         <h2>About Velora</h2>
-        <p class="muted">Version ${esc(APP_VERSION)}. No accounts, no API keys and no subscriptions. Chats stay on this device. After setup, Velora does not need the internet to chat, although offline use still needs testing on your phone.</p>
+        <p class="muted">Version ${esc(APP_VERSION)}. No accounts, no API keys and no subscriptions. Chats stay on this device. Offline use after downloading has not yet been tested on an iPhone 14.</p>
         <p class="muted small">Storage limit: about ${DEVICE.storageNeededMB} MB is needed for the model. Your browser decides the total.</p>
       </section>
     </div>`;
@@ -109,49 +91,8 @@ export async function renderProfile() {
   return {
     html,
     bind(root, { rerender }) {
-      const progress = root.querySelector('#progress');
-      const bar = root.querySelector('#progress-bar');
-      const progressText = root.querySelector('#progress-text');
-      const statusEl = root.querySelector('#model-status');
-      const download = root.querySelector('#download');
-      const remove = root.querySelector('#remove');
-
       root.querySelector('#recheck').addEventListener('click', () => {
         getDeviceReport({ force: true }).then(() => rerender());
-      });
-
-      download.addEventListener('click', async () => {
-        download.disabled = true;
-        remove.disabled = true;
-        progress.hidden = false;
-        progressText.hidden = false;
-        statusEl.textContent = 'Downloading the model. Keep Velora open until this finishes.';
-        try {
-          await downloadModel(spec, ({ progress: p, text }) => {
-            bar.style.width = `${Math.min(100, Math.round(p * 100))}%`;
-            progressText.textContent = text || 'Preparing…';
-          });
-          toast('The model is ready on this device.');
-          rerender();
-        } catch (err) {
-          statusEl.textContent = err.message;
-          statusEl.classList.add('is-error');
-          download.disabled = false;
-          remove.disabled = !downloaded;
-        }
-      });
-
-      remove.addEventListener('click', async () => {
-        if (!confirmAction('Delete the downloaded model files? You will need to download them again before chatting.')) return;
-        remove.disabled = true;
-        try {
-          await removeModel(spec);
-          toast('Model files deleted.');
-          rerender();
-        } catch (err) {
-          toast(err.message, 6000);
-          remove.disabled = false;
-        }
       });
 
       root.querySelector('#persist').addEventListener('click', async () => {
@@ -196,9 +137,9 @@ export async function renderProfile() {
 
       root.querySelector('#erase').addEventListener('click', async () => {
         if (!confirmAction('Erase everything in Velora on this device? This cannot be undone.')) return;
-        if (!confirmAction('Are you sure? Characters, chats, memories and the downloaded model will be removed.')) return;
+        if (!confirmAction('Are you sure? Characters, chats, memories and every downloaded model will be removed.')) return;
         try {
-          await removeModel(spec).catch(() => {});
+          for (const m of MODELS) await removeModel(m).catch(() => {});
           await db.eraseEverything();
           await seedStartersIfEmpty(starterCharacters());
           toast('Everything was erased. The starter characters were restored.', 5000);

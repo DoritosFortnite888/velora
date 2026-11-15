@@ -5,13 +5,16 @@
 // messages rather than hand-written chat markers.
 import { LIMITS, LENGTHS } from './config.js';
 import { roleplayRules } from './safety.js';
-import { NATURAL_STYLE, contentMode, personaSection } from './persona.js';
+import { NATURAL_STYLE, CONTINUITY_RULES, contentMode, personaSection } from './persona.js';
+import { selectMemoryLines } from './memory.js';
 
 // English text is about 4 characters per token. Counting 3 leaves a safety margin.
 const CHARS_PER_TOKEN = 3;
 // Rough allowance for the wrapping each message gets from the model's chat format.
 const TURN_OVERHEAD = 40;
 const SAFETY_MARGIN_TOKENS = 96;
+// How many of the latest messages are used to decide which memories are relevant.
+const QUERY_MESSAGES = 3;
 
 // Shortens long text, keeping its start. Adds "..." when text is cut.
 export function clip(text, limit) {
@@ -31,8 +34,9 @@ function characterBudget(contextTokens, replyTokens) {
 
 // Prompt for a normal reply. history must end with the user's latest message.
 // lengthGuide is the instruction for how long this reply should be (see persona.js replyLength).
-export function buildChatMessages({ character, history, memories, contextTokens, replyTokens, lengthGuide }) {
-  const system = systemPrompt(character, memories, lengthGuide ?? LENGTHS.short.guide);
+export function buildChatMessages({ character, history, memories, chatSummary, contextTokens, replyTokens, lengthGuide }) {
+  const queryText = history.slice(-QUERY_MESSAGES).map((m) => m.text).join(' ');
+  const system = systemPrompt(character, memories, lengthGuide ?? LENGTHS.short.guide, queryText, chatSummary);
   const postHistory = clip(clean(character.postHistoryInstructions), 300);
 
   let remaining = characterBudget(contextTokens, replyTokens) - system.length - postHistory.length;
@@ -64,14 +68,21 @@ export function buildChatMessages({ character, history, memories, contextTokens,
 }
 
 // Prompt that asks the model to write short memory notes after a long chat.
-export function buildSummaryMessages({ character, transcript, contextTokens, replyTokens }) {
+// existing: memories already saved for this character, so the model does not write them again.
+export function buildSummaryMessages({ character, transcript, existing = [], contextTokens, replyTokens }) {
+  const known = existing
+    .slice(-12)
+    .map((m) => clip(String(m.text ?? '').trim(), 120))
+    .filter(Boolean);
   const system = [
     'You write memory notes for a roleplay app.',
-    `Read the conversation below and list up to three lasting facts: things the user shared about themselves, promises, shared events, and how the relationship with ${character.name} changed.`,
+    `Read the conversation below and list up to three lasting facts: things the user shared about themselves, their preferences, promises, shared events, and how the relationship with ${character.name} changed.`,
     "Write one short plain sentence per line, each starting with '- '.",
+    'Only write what the conversation actually says. Do not invent anything.',
+    known.length ? `These notes are already saved, so do not repeat them: ${known.join(' | ')}.` : '',
     'Do not include sexual content.',
     "If nothing lasting happened, write '- Nothing notable.'",
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 
   let remaining = characterBudget(contextTokens, replyTokens) - system.length;
   const lines = [];
@@ -89,7 +100,49 @@ export function buildSummaryMessages({ character, transcript, contextTokens, rep
   ];
 }
 
-function systemPrompt(character, memories, lengthGuide) {
+// Decides whether older messages that have left the prompt window need a new summary.
+// history: every saved message in order (oldest first), including the newest user message.
+// summaryThrough: how many of the oldest messages the current summary already covers.
+// Returns { from, to, transcript } for the messages to summarise next, or null when nothing is due.
+export function rollingSummaryStep(history, summaryThrough = 0) {
+  const dropped = Math.max(0, history.length - LIMITS.maxHistoryMessages);
+  const covered = Math.max(0, summaryThrough);
+  if (dropped - covered < LIMITS.rollingSummaryBatch) return null;
+  const to = Math.min(dropped, covered + LIMITS.rollingSummaryChunk);
+  return { from: covered, to, transcript: history.slice(covered, to) };
+}
+
+// Prompt that folds newly dropped messages into the running summary of this chat.
+export function buildRollingSummaryMessages({ character, previous = '', transcript, contextTokens, replyTokens }) {
+  const system = [
+    `You keep a running summary of a roleplay chat between a user and ${character.name}.`,
+    'Write one short paragraph, in the third person, of the events, facts, promises and feelings that matter for later replies.',
+    previous ? 'Update the existing summary below with the new messages. Keep what is still true, and drop nothing important.' : 'Summarise the messages below.',
+    'Only write what the chat actually says. Do not invent anything. Do not include sexual content.',
+  ].join(' ');
+
+  let remaining = characterBudget(contextTokens, replyTokens) - system.length;
+  const lines = [];
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const message = transcript[i];
+    const speaker = message.isFromUser ? 'user' : character.name;
+    const line = `${speaker}: ${clip(message.text, 400)}`;
+    if (line.length + 1 > remaining) break;
+    remaining -= line.length + 1;
+    lines.unshift(line);
+  }
+  const body = [
+    previous ? `Existing summary: ${clip(previous, 900)}` : '',
+    'New messages:',
+    lines.join('\n'),
+  ].filter(Boolean).join('\n');
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: body },
+  ];
+}
+
+function systemPrompt(character, memories, lengthGuide, queryText, chatSummary) {
   const sections = [];
   const mode = contentMode(character);
 
@@ -114,22 +167,28 @@ function systemPrompt(character, memories, lengthGuide) {
   const extra = clip(clean(character.customInstructions), 300);
   if (extra) sections.push(`Extra instructions: ${extra}`);
 
-  // Newest memories first until the memory budget is used. They are then shown oldest first.
-  const memoryLines = [];
-  let used = 0;
-  for (const memory of memories.slice(-LIMITS.maxMemories).reverse()) {
-    const line = '- ' + clip(memory.text, 200);
-    if (used + line.length > 700) break;
-    used += line.length + 1;
-    memoryLines.unshift(line);
-  }
+  // The memories most relevant to what is being discussed, plus any pinned ones. Written oldest first.
+  const memoryLines = selectMemoryLines(memories, {
+    query: queryText,
+    limit: LIMITS.maxMemories,
+    charBudget: LIMITS.memoryChars,
+  });
   if (memoryLines.length) {
     sections.push(
-      'Shared history with the user. Remember these and refer to them naturally when it fits:\n' +
+      'What you remember about the user and your shared history. Use these when they fit. Do not invent other shared history:\n' +
         memoryLines.join('\n'),
     );
   }
 
+  // The running summary of older messages in this chat, so references to earlier events still work.
+  const summary = clip(clean(chatSummary), 900);
+  if (summary) {
+    sections.push(
+      'Earlier in this chat (a summary of messages no longer shown in full). Stay consistent with it:\n' + summary,
+    );
+  }
+
+  sections.push(CONTINUITY_RULES);
   sections.push(NATURAL_STYLE);
   sections.push(personaSection(character, mode));
   sections.push(`Length of this reply: ${lengthGuide}`);

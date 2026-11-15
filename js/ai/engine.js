@@ -38,6 +38,28 @@ export function isModelLoaded(modelId) {
   return !!engine && engineModelId === modelId;
 }
 
+// The WebLLM model id currently in GPU memory, or null. Used to free memory when the user switches.
+export function currentModelId() {
+  return engine ? engineModelId : null;
+}
+
+// Asks the library whether the model files are still in the browser cache. Returns true or false,
+// or null when this library version cannot say. The library is loaded only if it is already loaded
+// or can be loaded now, so this never starts a download.
+export async function modelFilesCached(modelId) {
+  try {
+    await loadLibrary();
+  } catch {
+    return null;
+  }
+  if (typeof library?.hasModelInCache !== 'function') return null;
+  try {
+    return !!(await library.hasModelInCache(modelId, library.prebuiltAppConfig));
+  } catch {
+    return null;
+  }
+}
+
 // Loads the model into the GPU. Downloads the files first if they are not cached yet.
 export async function loadEngine(spec, { hasF16 = false, onProgress } = {}) {
   const modelId = resolveModelId(spec, hasF16);
@@ -163,6 +185,9 @@ export async function deleteModelFiles(modelIds) {
 
 function explainLoadError(err) {
   const message = String(err?.message || err || '');
+  if (/is not in WebLLM|prebuilt/i.test(message)) {
+    return `This model is not in the WebLLM library version Velora uses. Try another model. (${message})`;
+  }
   if (/adapter|webgpu|gpu/i.test(message)) {
     return `The GPU could not be used to load the model. Check the WebGPU section on the Profile page. (${message})`;
   }

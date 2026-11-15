@@ -13,6 +13,7 @@ import { renderImport } from './ui/views/importer.js';
 import { renderExamples } from './ui/views/examples.js';
 import { renderChat } from './ui/views/chat.js';
 import { renderMemories } from './ui/views/memories.js';
+import { renderModels } from './ui/views/models.js';
 
 const VIEWS = {
   discover: () => renderDiscover(),
@@ -24,6 +25,7 @@ const VIEWS = {
   examples: () => renderExamples(),
   chat: (id) => renderChat(id),
   memories: (id) => renderMemories(id),
+  models: () => renderModels(),
 };
 
 const TAB_ROUTES = ['discover', 'chats', 'profile'];

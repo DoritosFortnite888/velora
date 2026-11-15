@@ -57,10 +57,10 @@ const browser = await chromium.launch({ args: ['--no-sandbox'] });
 // A context with NO stub: whatever this browser's real GPU reports is what Velora sees.
 const realContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 const realPage = await realContext.newPage();
-await realPage.goto(BASE_URL + '#/profile', { waitUntil: 'load' });
+await realPage.goto(BASE_URL + '#/models', { waitUntil: 'load' });
 await realPage.waitForTimeout(1000);
 const realDanger = await realPage.textContent('.notice--danger').catch(() => '');
-const realDownloadDisabled = await realPage.isDisabled('#download');
+const realDownloadDisabled = await realPage.isDisabled('[data-download="qwen2.5-0.5b"]');
 check('real browser: refuses the model and explains why',
   realDanger.includes('cannot run the model') || (!realDownloadDisabled && !realDanger),
   realDanger ? realDanger.replace(/\s+/g, ' ').slice(0, 110) : 'device passed');
@@ -175,9 +175,10 @@ check('sending without a model explains why', (await page.textContent('#toast'))
 await goto('#/profile');
 check('profile reports GPU and device checks', (await page.textContent('#view')).includes('Available'));
 check('profile explains roleplay and adult rules', (await page.textContent('#view')).includes('Romance is only for characters confirmed as adults'));
-await page.click('#download');
-await page.waitForFunction(() => document.querySelector('#model-status')?.textContent.includes('loaded in memory'), null, { timeout: 8000 }).catch(() => {});
-check('model download completes and shows ready state', (await page.textContent('#model-status')).includes('Downloaded'));
+await goto('#/models');
+await page.click('[data-download="qwen2.5-0.5b"]');
+await page.waitForFunction(() => document.querySelector('[data-status="qwen2.5-0.5b"]')?.textContent.includes('Downloaded'), null, { timeout: 8000 }).catch(() => {});
+check('model download completes and shows ready state', (await page.textContent('[data-status="qwen2.5-0.5b"]')).includes('Downloaded'));
 
 // 8. Natural style, romance level and personality reach the model
 await goto('#/discover');
@@ -238,6 +239,90 @@ const miraId = await characterIdByName('Mira');
 await goto(`#/memories/${miraId}`);
 const memoryText = await page.textContent('#memory-list');
 check('memory notes are written after a long chat', memoryText.includes('like tea'), memoryText.replace(/\s+/g, ' ').trim().slice(0, 60));
+
+// 13b. Memories can be edited, pinned, added, deleted, and they survive a reload (v1.2)
+const firstMemory = page.locator('#memory-list .memory-item').first();
+await firstMemory.locator('[data-edit]').click();
+await firstMemory.locator('textarea').fill('The user likes green tea in the evening.');
+await firstMemory.locator('button[type="submit"]').click();
+await page.waitForTimeout(300);
+check('a memory can be edited', (await page.textContent('#memory-list')).includes('green tea in the evening'));
+
+await page.locator('#memory-list .memory-item').first().locator('[data-pin]').click();
+await page.waitForTimeout(300);
+check('a memory can be pinned', (await page.textContent('#memory-list')).includes('Pinned'));
+
+await page.fill('#memory-form textarea', 'I am training for a half marathon in May');
+await page.click('#memory-form button[type="submit"]');
+await page.waitForTimeout(300);
+await page.fill('#memory-form textarea', 'I am training for a half marathon in May');
+await page.click('#memory-form button[type="submit"]');
+await page.waitForTimeout(200);
+check('a repeated memory is refused', (await page.textContent('#memory-error')).includes('already saved'));
+
+await page.reload({ waitUntil: 'load' });
+await page.waitForTimeout(600);
+check('memories survive closing and reopening the app', (await page.textContent('#memory-list')).includes('half marathon'));
+
+await goto(`#/character/${miraId}`);
+await page.click('#chat-btn');
+await page.waitForTimeout(400);
+await page.fill('#draft', 'What should we have for breakfast?');
+await page.click('#send');
+await waitIdle();
+const memoryCall = await lastCall();
+check('a pinned memory is sent with the next message', !!memoryCall?.system.includes('green tea in the evening'));
+check('the prompt says not to invent shared history', !!memoryCall?.system.includes('Do not invent other shared history'));
+check('the prompt includes the continuity rules', !!memoryCall?.system.includes('Continuity:'));
+check('the prompt asks for quoted speech and asterisk actions', !!memoryCall?.system.includes('double quotes'));
+
+await goto(`#/memories/${miraId}`);
+const before = await page.locator('#memory-list .memory-item').count();
+await page.locator('#memory-list .memory-item').last().locator('[data-delete]').click();
+await page.waitForTimeout(300);
+const after = await page.locator('#memory-list .memory-item').count();
+check('a single memory can be deleted', after === before - 1, `${before} -> ${after}`);
+
+await page.click('#clear-memories');
+await page.waitForTimeout(300);
+check('all memories for a character can be deleted at once', (await page.locator('#memory-list .memory-item').count()) === 0);
+
+// 13c. Choosing a model does not download it, and the reply timing choice is saved
+await goto('#/models');
+await page.click('[data-use="llama-3.2-1b"]');
+await page.waitForTimeout(500);
+const chosenStatus = await page.textContent('[data-status="llama-3.2-1b"]');
+check('choosing a larger model does not download it', chosenStatus.includes('Not downloaded'), chosenStatus.slice(0, 60));
+check('the larger model is marked as not yet tested on a device', (await page.textContent('#view')).includes('Not yet run on an iPhone 14'));
+check('the progress bar stays hidden after choosing', !(await page.isVisible('[data-progress-wrap="llama-3.2-1b"]')));
+await page.click('[data-use="qwen2.5-0.5b"]');
+await page.waitForTimeout(500);
+check('switching back to the default model shows its own status', (await page.textContent('[data-status="qwen2.5-0.5b"]')).includes('Downloaded'));
+
+await page.reload({ waitUntil: 'load' });
+await page.waitForTimeout(600);
+check('the selected model is kept after a reload', (await page.textContent('[data-model="qwen2.5-0.5b"]')).includes('Selected'));
+
+await goto(`#/character/${miraId}`);
+await page.click('#chat-btn');
+await page.waitForTimeout(400);
+const startedAt = Date.now();
+await page.fill('#draft', 'Quick question about the shelves');
+await page.click('#send');
+await waitIdle();
+const elapsed = Date.now() - startedAt;
+check('the reply is not held back by an artificial timer', elapsed < 4000, `${elapsed} ms`);
+
+// Stopping while Velora is still preparing removes the empty reply and restores send
+await page.fill('#draft', 'Another quick one');
+await page.click('#send');
+await page.waitForTimeout(400);
+await page.click('#send');
+await page.waitForTimeout(600);
+const emptyReplies = await page.$$eval('.msg--ai .bubble', (els) => els.filter((e) => !e.textContent.trim()).length);
+check('stopping during preparation removes the empty reply', emptyReplies === 0, `${emptyReplies} empty`);
+check('send is ready again after stopping during preparation', (await page.getAttribute('#send', 'data-mode')) === 'send');
+
 
 // 14. Adult character with confirmed age gets romance; the prompt says so
 await goto(`#/character/${bramId}`);
@@ -307,11 +392,11 @@ await brokenContext.addInitScript(() => {
     features: new Set(), limits: { maxBufferSize: 1 << 30, maxStorageBufferBindingSize: 1 << 28 }, info: {} }) } });
 });
 const brokenPage = await brokenContext.newPage();
-await brokenPage.goto(BASE_URL + '#/profile', { waitUntil: 'load' });
+await brokenPage.goto(BASE_URL + '#/models', { waitUntil: 'load' });
 await brokenPage.waitForTimeout(800);
-await brokenPage.click('#download').catch(() => {});
-await brokenPage.waitForFunction(() => /could not|not be loaded|failed|cannot/i.test(document.getElementById('model-status')?.textContent || ''), null, { timeout: 30000 }).catch(() => {});
-const brokenStatus = await brokenPage.textContent('#model-status');
+await brokenPage.click('[data-download="qwen2.5-0.5b"]').catch(() => {});
+await brokenPage.waitForFunction(() => /could not|not be loaded|failed|cannot/i.test(document.querySelector('.toast, #toast')?.textContent || ''), null, { timeout: 30000 }).catch(() => {});
+const brokenStatus = await brokenPage.textContent('#toast').catch(() => '');
 check('failed library download explains the problem', /could not|failed|not be loaded/i.test(brokenStatus), brokenStatus.slice(0, 80));
 await brokenContext.close();
 

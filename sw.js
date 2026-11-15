@@ -2,7 +2,7 @@
 // Keeps the website working offline: the app's own files and the WebLLM library are stored
 // after the first visit. The AI model files are stored separately by the WebLLM library in
 // the browser's Cache Storage, and this worker does not touch them.
-const CACHE_NAME = 'velora-v2';
+const CACHE_NAME = 'velora-v4';
 const TRUSTED_CDN_HOSTS = ['cdn.jsdelivr.net'];
 
 self.addEventListener('install', () => {

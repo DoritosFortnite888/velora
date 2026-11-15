@@ -26,7 +26,7 @@ Work through the steps in order. Where a step says **test**, do it, and note wha
 
 ## Step 3: Download the model (once, on Wi-Fi)
 
-1. On the Profile page, tap **Download model**.
+1. On the Profile page, tap **Manage AI models**. Choose **Llama 3.2 1B** (recommended for iPhone 14) or **Qwen2.5 0.5B** (the smallest). Tap **Download** and confirm the size.
 2. Keep Velora open and the screen on until the progress bar finishes. Do not switch apps.
 3. When it says "Downloaded and loaded in memory", the model is ready.
 4. **Test:** tap **Delete model files**, then download it again. Note how long it takes.
@@ -40,7 +40,7 @@ If the download fails, the message explains why (for example, no connection, or 
 3. Keep the name **Velora** and tap **Add**.
 4. Close Safari and open Velora from its new icon. It opens full screen, without the Safari address bar.
 
-**Storage note:** on iOS, an app added to the Home Screen may keep its own storage separate from Safari. Go to the Profile page inside the Home Screen app. If it says the model is not downloaded, tap **Download model** there.
+**Storage note:** on iOS, an app added to the Home Screen may keep its own storage separate from Safari. Go to the AI models page inside the Home Screen app. If it says the model is not downloaded, tap **Download** there.
 
 ## Step 5: Test offline use (only after Steps 3 and 4)
 

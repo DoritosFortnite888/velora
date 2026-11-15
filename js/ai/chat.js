@@ -1,15 +1,16 @@
 // Chat logic: sending messages, streaming replies, stopping, regenerating and writing memory notes.
 // Ported from the Swift ChatViewModel. UI code passes "listeners" and is told about every change.
 import * as db from '../data/db.js';
-import { LIMITS } from '../core/config.js';
+import { LIMITS, INFERENCE } from '../core/config.js';
 import { replyLength } from '../core/persona.js';
 import { cleanReply } from '../core/format.js';
 import { AGE_GATE, suggestsMinor } from '../core/safety.js';
-import { buildChatMessages, buildSummaryMessages } from '../core/prompt.js';
+import { buildChatMessages, buildSummaryMessages, buildRollingSummaryMessages, rollingSummaryStep } from '../core/prompt.js';
+import { isDuplicateMemory } from '../core/memory.js';
 import { newId, stamp } from '../core/util.js';
-import { loadEngine, generate, EngineError } from './engine.js';
+import { generate, EngineError } from './engine.js';
 import { getDeviceReport } from './device.js';
-import { selectedSpec, isDownloaded } from './model-store.js';
+import { selectedSpec, isDownloaded, modelFilesReady, ensureLoaded } from './model-store.js';
 
 // Only one reply can be written at a time, because there is only one model in memory.
 let current = null; // { conversationId, controller }
@@ -44,7 +45,11 @@ async function preflight(character) {
   }
   const spec = await selectedSpec();
   if (!(await isDownloaded(spec))) {
-    throw new EngineError('The AI model is not downloaded yet. Open Profile and tap "Download model". It only needs to be downloaded once.');
+    throw new EngineError(`${spec.displayName} is not downloaded yet. Open Models and download it. It only needs to be downloaded once.`);
+  }
+  // Chat never starts a large download on its own. If the files were cleared, the user is asked first.
+  if (!(await modelFilesReady(spec, report.hasF16))) {
+    throw new EngineError(`The files for ${spec.displayName} are no longer on this device. Open Models and download them again (about ${spec.downloadMB} MB, estimate). Velora asks before any download.`);
   }
   return { spec, hasF16: report.hasF16 };
 }
@@ -115,31 +120,38 @@ async function runReply({ conversation, character, context, listeners }) {
   let lastSave = 0;
 
   try {
+    listeners.onStatus?.('Preparing…');
     const history = (await db.listMessages(conversation.id)).filter((m) => m.id !== placeholder.id);
     const memories = await db.listMemories(character.id);
     const lastUser = [...history].reverse().find((m) => m.isFromUser)?.text ?? '';
     const length = replyLength(character, lastUser);
+    // The prompt holds the recent messages, the memories that match the chat (see core/memory.js),
+    // and a summary of older messages.
     const messages = buildChatMessages({
       character,
       history,
       memories,
+      chatSummary: conversation.chatSummary ?? '',
       contextTokens: context.spec.contextWindow,
       replyTokens: length.maxTokens,
       lengthGuide: length.guide,
     });
 
-    await loadEngine(context.spec, {
+    // Loads the model only if it is not already in memory. No artificial waiting: the reply starts
+    // as soon as the model is ready.
+    await ensureLoaded(context.spec, {
       hasF16: context.hasF16,
       onProgress: (p) => listeners.onStatus?.(describeProgress(p)),
     });
+    if (controller.signal.aborted) {
+      await removePlaceholder(placeholder, listeners);
+      return;
+    }
     listeners.onStatus?.('');
 
     const full = await generate(messages, {
       maxTokens: length.maxTokens,
-      temperature: 0.85,
-      topP: 0.95,
-      frequencyPenalty: 0.4,
-      presencePenalty: 0.2,
+      ...INFERENCE,
       stop: ['\nUser:', '\nuser:'],
       signal: controller.signal,
       onToken: (piece) => {
@@ -170,6 +182,7 @@ async function runReply({ conversation, character, context, listeners }) {
     }
 
     if (succeeded && !controller.signal.aborted) {
+      await maybeRollSummary({ conversation, character, spec: context.spec, signal: controller.signal });
       await maybeSummarize({ conversation, character, spec: context.spec, signal: controller.signal });
     }
   } catch (err) {
@@ -202,16 +215,49 @@ async function saveWithPreview(conversation, message) {
   await db.saveConversation(conversation);
 }
 
+// Keeps a running summary of messages that have fallen out of the prompt window. It is updated after
+// a reply (not before one), so it does not slow down the next reply. Only the newly dropped messages
+// are read, plus the existing summary.
+async function maybeRollSummary({ conversation, character, spec, signal }) {
+  const history = (await db.listMessages(conversation.id)).filter((m) => m.text.trim());
+  const step = rollingSummaryStep(history, conversation.summaryThrough ?? 0);
+  if (!step) return;
+
+  let text = '';
+  try {
+    text = await generate(
+      buildRollingSummaryMessages({
+        character,
+        previous: conversation.chatSummary ?? '',
+        transcript: step.transcript,
+        contextTokens: spec.contextWindow,
+        replyTokens: LIMITS.rollingSummaryTokens,
+      }),
+      { maxTokens: LIMITS.rollingSummaryTokens, temperature: 0.3, topP: 0.9, signal },
+    );
+  } catch {
+    return; // the summary is optional; a failure must not disturb the chat
+  }
+  const clean = text.replace(/\s+/g, ' ').trim().slice(0, 1200);
+  if (!clean) return;
+  conversation.chatSummary = clean;
+  conversation.summaryThrough = step.to;
+  await db.saveConversation(conversation);
+}
+
 // After enough new messages, asks the model for a few lasting facts and stores them as memories.
+// Each memory records where it came from, and near-identical notes are not saved twice.
 async function maybeSummarize({ conversation, character, spec, signal }) {
   const messages = await db.listMessages(conversation.id);
   const done = conversation.summarizedCount || 0;
   if (messages.length - done < LIMITS.summaryThreshold) return;
 
   const transcript = messages.slice(done).slice(-LIMITS.summaryTranscript);
+  const existing = await db.listMemories(character.id);
   const prompt = buildSummaryMessages({
     character,
     transcript,
+    existing,
     contextTokens: spec.contextWindow,
     replyTokens: LIMITS.summaryTokens,
   });
@@ -223,18 +269,26 @@ async function maybeSummarize({ conversation, character, spec, signal }) {
     return; // memory notes are optional; a failure must not disturb the chat
   }
 
+  const now = Date.now();
   for (const raw of notes.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line.startsWith('- ')) continue;
-    const text = line.slice(2).trim();
+    const text = line.slice(2).trim().slice(0, 200);
     if (!text || /^nothing notable/i.test(text) || suggestsMinor(text)) continue;
-    await db.saveMemory({
+    if (isDuplicateMemory(text, existing)) continue;
+    const memory = {
       id: newId(),
       characterId: character.id,
-      text: text.slice(0, 200),
+      text,
       kind: 'summary',
-      createdAt: Date.now(),
-    });
+      source: 'chat',
+      conversationId: conversation.id,
+      pinned: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await db.saveMemory(memory);
+    existing.push(memory);
   }
   conversation.summarizedCount = messages.length;
   await db.saveConversation(conversation);
