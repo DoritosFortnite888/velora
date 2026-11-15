@@ -3,6 +3,7 @@ import { APP_VERSION, APP_NAME, DEVICE, MODELS } from '../../core/config.js';
 import { formatMB } from '../../core/util.js';
 import { getDeviceReport } from '../../ai/device.js';
 import { selectedSpec, modelStatus, removeModel } from '../../ai/model-store.js';
+import { getAIMode, getOnlineState, chooseOnline, chooseOffline } from '../../ai/mode.js';
 import { runSpeedTest } from '../../ai/benchmark.js';
 import { summarize, getSpeedTest, recentReplies } from '../../ai/metrics.js';
 import { esc, pageHeader, notice, toast, confirmAction, ICON } from '../dom.js';
@@ -49,6 +50,8 @@ export async function renderProfile() {
   const report = await getDeviceReport();
   const spec = await selectedSpec();
   const status = await modelStatus(spec);
+  const mode = await getAIMode();
+  const online = await getOnlineState();
 
   const deviceNotice = report.ok
     ? notice('ok', `${ICON.check}<p>This device passes the basic checks. These checks are estimates. The model can still fail to load on a device that passes them.</p>`)
@@ -57,6 +60,20 @@ export async function renderProfile() {
   const html = `
     ${pageHeader({ eyebrow: APP_NAME, title: 'Profile' })}
     <div class="stack">
+      <section class="panel">
+        <div class="panel-head">${ICON.cloud}<h2>AI mode</h2></div>
+        <p class="muted">Now using: <strong>${mode === 'online' ? 'Online AI (sent to your AI provider)' : 'On this device (offline)'}</strong></p>
+        <div class="segmented" role="group" aria-label="AI mode">
+          <button type="button" class="segmented__btn" id="mode-offline" aria-pressed="${mode === 'offline'}">On this device</button>
+          <button type="button" class="segmented__btn" id="mode-online" aria-pressed="${mode === 'online'}">Online AI</button>
+        </div>
+        <p class="muted small">On this device works offline after the model is downloaded. Online AI needs the internet, a proxy you set up, and a test that succeeds. Chats are sent to the provider when Online AI is on.</p>
+        ${!online.verified && online.chosen ? '<p class="note">Online AI is not ready yet. Run Test connection on the setup page.</p>' : ''}
+        <div class="btn-row">
+          <a class="btn btn--ghost" href="#/online">${online.proxyUrl ? 'Online AI setup' : 'Set up online AI'}</a>
+        </div>
+      </section>
+
       <section class="panel">
         <div class="panel-head">${ICON.cpu}<h2>On-device AI</h2></div>
         ${deviceNotice}
@@ -114,7 +131,7 @@ export async function renderProfile() {
 
       <section class="panel">
         <h2>About Velora</h2>
-        <p class="muted">Version ${esc(APP_VERSION)}. No accounts, no API keys and no subscriptions. Chats stay on this device. Offline use after downloading has not yet been tested on an iPhone 14.</p>
+        <p class="muted">Version ${esc(APP_VERSION)}. No accounts. On this device needs no API key or subscription, and chats stay on this device. Online AI sends chats to the provider set up in your own proxy, and only when you turn it on. Offline use after downloading has not yet been tested on an iPhone 14.</p>
         <p class="muted small">Storage limit: about ${DEVICE.storageNeededMB} MB is needed for the model. Your browser decides the total.</p>
       </section>
     </div>`;
@@ -122,6 +139,22 @@ export async function renderProfile() {
   return {
     html,
     bind(root, { rerender }) {
+      root.querySelector('#mode-offline').addEventListener('click', async () => {
+        await chooseOffline();
+        toast('On this device is now used for replies.', 4000);
+        rerender();
+      });
+      root.querySelector('#mode-online').addEventListener('click', async () => {
+        try {
+          await chooseOnline();
+          toast('Online AI is on. Chats are sent to your AI provider.', 5000);
+          rerender();
+        } catch (err) {
+          toast(err.message, 7000);
+          location.hash = '#/online';
+        }
+      });
+
       root.querySelector('#recheck').addEventListener('click', () => {
         getDeviceReport({ force: true }).then(() => rerender());
       });

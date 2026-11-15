@@ -1,6 +1,7 @@
 import * as db from '../../data/db.js';
 import { chatBlockReason, sendMessage, regenerateLast, stopGeneration, isGenerating } from '../../ai/chat.js';
 import { isDownloaded, selectedSpec } from '../../ai/model-store.js';
+import { getAIMode } from '../../ai/mode.js';
 import { contentMode, ADULT_MIN_AGE } from '../../core/persona.js';
 import { AGE_GATE } from '../../core/safety.js';
 import { esc, avatarHTML, formatText, TYPING_HTML, ICON, notFoundPage, toast, confirmAction } from '../dom.js';
@@ -20,6 +21,7 @@ export async function renderChat(conversationId) {
 
   const messages = await db.listMessages(conversationId);
   const block = chatBlockReason(character);
+  const mode = await getAIMode();
   const downloaded = await isDownloaded(await selectedSpec());
 
   const html = `
@@ -31,13 +33,14 @@ export async function renderChat(conversationId) {
           <span><strong>${esc(character.name)}</strong><small>${esc(character.tagline || 'Tap for profile')}</small></span>
         </a>
         <div class="page-header__actions">
+          <span class="mode-pill mode-pill--${mode}" title="${mode === 'online' ? 'Replies are written by your online AI proxy.' : 'Replies are written on this device.'}">${mode === 'online' ? 'Online' : 'On device'}</span>
           <a class="icon-btn" href="#/memories/${character.id}" aria-label="Memories" title="Memories">${ICON.memory}</a>
           <button class="icon-btn" id="regen-btn" type="button" aria-label="Regenerate last reply" title="Regenerate">${ICON.refresh}</button>
           <button class="icon-btn" id="delete-chat" type="button" aria-label="Delete this chat" title="Delete chat">${ICON.trash}</button>
         </div>
       </header>
 
-      ${!downloaded ? '<a class="banner" href="#/profile">The AI model is not downloaded yet. Tap here to download it once.</a>' : ''}
+      ${mode === 'offline' && !downloaded ? '<a class="banner" href="#/profile">The AI model is not downloaded yet. Tap here to download it once.</a>' : ''}
       ${block ? `<a class="banner banner--warn" href="#/character/${character.id}">${esc(block)}</a>` : ''}
       ${!block && character.ageGate === AGE_GATE.ADULT && contentMode(character).reason === 'age-unclear'
         ? `<a class="banner" href="#/edit/${character.id}">Romance is off. Add this character's age (${ADULT_MIN_AGE}+) in Edit to allow it.</a>` : ''}

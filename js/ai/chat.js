@@ -1,7 +1,7 @@
 // Chat logic: sending messages, streaming replies, stopping, regenerating and writing memory notes.
 // Ported from the Swift ChatViewModel. UI code passes "listeners" and is told about every change.
 import * as db from '../data/db.js';
-import { LIMITS, INFERENCE } from '../core/config.js';
+import { LIMITS, ONLINE_LIMITS, INFERENCE } from '../core/config.js';
 import { replyLength } from '../core/persona.js';
 import { cleanReply } from '../core/format.js';
 import { AGE_GATE, suggestsMinor } from '../core/safety.js';
@@ -10,7 +10,8 @@ import { isDuplicateMemory } from '../core/memory.js';
 import { newId, stamp } from '../core/util.js';
 import { enqueue, idle } from './queue.js';
 import { startReply, markChunk, finishReply } from './metrics.js';
-import { generate, EngineError } from './engine.js';
+import { EngineError } from './engine.js';
+import { getAIMode, generateText } from './mode.js';
 import { getDeviceReport } from './device.js';
 import { selectedSpec, isDownloaded, modelFilesReady, ensureLoaded } from './model-store.js';
 
@@ -40,10 +41,18 @@ export function chatBlockReason(character) {
   }
 }
 
-// Checks everything needed before a reply: age gate, device, and a downloaded model.
+// Checks everything needed before a reply: the age gate, then either the online proxy or the device and a downloaded model.
 async function preflight(character) {
   const reason = chatBlockReason(character);
   if (reason) throw new Error(reason);
+
+  if ((await getAIMode()) === 'online') {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new EngineError('This device has no internet connection, so online AI cannot be used. Connect to the internet, or switch to On this device in Profile.');
+    }
+    // The on-device model is not needed, so nothing is loaded and nothing is downloaded.
+    return { mode: 'online', spec: null, hasF16: false, contextTokens: ONLINE_LIMITS.contextTokens, limits: ONLINE_LIMITS };
+  }
 
   const report = await getDeviceReport();
   if (!report.ok) {
@@ -57,7 +66,7 @@ async function preflight(character) {
   if (!(await modelFilesReady(spec, report.hasF16))) {
     throw new EngineError(`The files for ${spec.displayName} are no longer on this device. Open Models and download them again (about ${spec.downloadMB} MB, estimate). Velora asks before any download.`);
   }
-  return { spec, hasF16: report.hasF16 };
+  return { mode: 'offline', spec, hasF16: report.hasF16, contextTokens: spec.contextWindow, limits: LIMITS };
 }
 
 export function makeMessage(conversationId, isFromUser, text) {
@@ -159,27 +168,30 @@ async function runReply({ conversation, character, context, listeners }) {
       history,
       memories,
       chatSummary: conversation.chatSummary ?? '',
-      contextTokens: context.spec.contextWindow,
+      contextTokens: context.contextTokens,
       replyTokens: length.maxTokens,
       lengthGuide: length.guide,
+      limits: context.limits,
     });
 
-    // Loads the model only if it is not already in memory. No artificial waiting: the reply starts
-    // as soon as the model is ready.
-    const loadStart = performance.now();
-    await ensureLoaded(context.spec, {
-      hasF16: context.hasF16,
-      onProgress: (p) => listeners.onStatus?.(describeProgress(p)),
-    });
-    loadMs = performance.now() - loadStart;
-    if (controller.signal.aborted) {
-      await removePlaceholder(placeholder, listeners);
-      return;
+    if (context.mode === 'offline') {
+      // Loads the model only if it is not already in memory. No artificial waiting: the reply starts
+      // as soon as the model is ready.
+      const loadStart = performance.now();
+      await ensureLoaded(context.spec, {
+        hasF16: context.hasF16,
+        onProgress: (p) => listeners.onStatus?.(describeProgress(p)),
+      });
+      loadMs = performance.now() - loadStart;
+      if (controller.signal.aborted) {
+        await removePlaceholder(placeholder, listeners);
+        return;
+      }
     }
-    listeners.onStatus?.('');
+    listeners.onStatus?.(context.mode === 'online' ? 'Connecting to your online AI…' : '');
 
     timer = startReply();
-    const full = await generate(messages, {
+    const full = await generateText(messages, {
       maxTokens: length.maxTokens,
       ...INFERENCE,
       stop: ['\nUser:', '\nuser:'],
@@ -196,7 +208,7 @@ async function runReply({ conversation, character, context, listeners }) {
           db.saveMessage(placeholder).catch(() => {});
         }
       },
-    });
+    }, context.mode, { onStatus: listeners.onStatus });
 
     const finalText = cleanReply(full, character.name);
     if (!finalText) {
@@ -231,7 +243,7 @@ async function runReply({ conversation, character, context, listeners }) {
 
   // Memory notes and summaries run after the reply is shown, so the reply does not wait for them.
   if (succeeded && !controller.signal.aborted) {
-    scheduleMaintenance({ conversation, character, spec: context.spec });
+    scheduleMaintenance({ conversation, character, mode: context.mode, contextTokens: context.contextTokens, limits: context.limits });
   }
 }
 
@@ -277,22 +289,23 @@ async function saveWithPreview(conversation, message) {
 // Keeps a running summary of messages that have fallen out of the prompt window. It is updated after
 // a reply (not before one), so it does not slow down the next reply. Only the newly dropped messages
 // are read, plus the existing summary.
-async function maybeRollSummary({ conversation, character, spec, signal }) {
+async function maybeRollSummary({ conversation, character, mode, contextTokens, limits, signal }) {
   const history = (await db.listMessages(conversation.id)).filter((m) => m.text.trim());
-  const step = rollingSummaryStep(history, conversation.summaryThrough ?? 0);
+  const step = rollingSummaryStep(history, conversation.summaryThrough ?? 0, limits);
   if (!step) return;
 
   let text = '';
   try {
-    text = await generate(
+    text = await generateText(
       buildRollingSummaryMessages({
         character,
         previous: conversation.chatSummary ?? '',
         transcript: step.transcript,
-        contextTokens: spec.contextWindow,
-        replyTokens: LIMITS.rollingSummaryTokens,
+        contextTokens,
+        replyTokens: limits.rollingSummaryTokens,
       }),
-      { maxTokens: LIMITS.rollingSummaryTokens, temperature: 0.3, topP: 0.9, signal },
+      { maxTokens: limits.rollingSummaryTokens, temperature: 0.3, topP: 0.9, signal },
+      mode,
     );
   } catch {
     return; // the summary is optional; a failure must not disturb the chat
@@ -307,7 +320,7 @@ async function maybeRollSummary({ conversation, character, spec, signal }) {
 
 // After enough new messages, asks the model for a few lasting facts and stores them as memories.
 // Each memory records where it came from, and near-identical notes are not saved twice.
-async function maybeSummarize({ conversation, character, spec, signal }) {
+async function maybeSummarize({ conversation, character, mode, contextTokens, signal }) {
   const messages = await db.listMessages(conversation.id);
   const done = conversation.summarizedCount || 0;
   if (messages.length - done < LIMITS.summaryThreshold) return;
@@ -318,13 +331,13 @@ async function maybeSummarize({ conversation, character, spec, signal }) {
     character,
     transcript,
     existing,
-    contextTokens: spec.contextWindow,
+    contextTokens,
     replyTokens: LIMITS.summaryTokens,
   });
 
   let notes = '';
   try {
-    notes = await generate(prompt, { maxTokens: LIMITS.summaryTokens, temperature: 0.4, topP: 0.9, signal });
+    notes = await generateText(prompt, { maxTokens: LIMITS.summaryTokens, temperature: 0.4, topP: 0.9, signal }, mode);
   } catch {
     return; // memory notes are optional; a failure must not disturb the chat
   }

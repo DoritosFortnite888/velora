@@ -11,3 +11,10 @@ node_modules/
 Thumbs.db
 .vscode/
 .idea/
+
+# Secrets for the online AI proxy. Never commit these. Keys belong in the hosting provider's secret settings.
+.env
+.env.*
+.dev.vars
+*.key
+secrets/

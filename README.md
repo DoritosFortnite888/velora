@@ -1,7 +1,9 @@
 # Velora
 
-Velora is a free website that works like an app. You chat with AI characters, and the AI runs **on your own device**. It does not use any paid API, cloud model, or account. It installs to your iPhone's Home Screen without an App Store or an IPA file.
+Velora is a free website that works like an app. You chat with AI characters, and the AI runs **on your own device**. By default it does not use any paid API, cloud model, or account. It installs to your iPhone's Home Screen without an App Store or an IPA file. An **optional Online AI mode** (version 1.7) can send chats to a hosted model through a proxy you set up yourself. It is off unless you turn it on, and it is described in the Online AI section below.
 
+> **Honest status (version 1.7):** Online AI is built and tested with a local proxy and a mock provider only. **No real AI provider has been tested by this project**, because no key was available. Run the test in [docs/ONLINE_AI_SETUP.md](docs/ONLINE_AI_SETUP.md) and see [docs/ONLINE_TEST_REPORT.md](docs/ONLINE_TEST_REPORT.md) for what was and was not checked.
+>
 > **Honest status (version 1.3):** the logic is tested automatically (see [docs/LIMITATIONS.md](docs/LIMITATIONS.md)). **No model in this version has been run on an iPhone 14 by this project**, so offline AI on iPhone is not yet proven. The stronger Llama 3.2 models are included as options, but on an iPhone 14 the 1B model is the realistic best choice, and even that is untested. Please run the test in [docs/IPHONE_INSTALL.md](docs/IPHONE_INSTALL.md) and report what happens.
 
 ## What you get
@@ -20,6 +22,7 @@ Velora is a free website that works like an app. You chat with AI characters, an
 - **Personality controls**: pick any of Shy, Confident, Playful, Flirty, Romantic, Sarcastic, Dominant or Gentle, add your own custom personality, and choose a narration style and reply length.
 - **Romance level**: a slider from Off to Intense. It only applies to confirmed adults with an age of 18 or more on record.
 - **Offline support**: the website is saved after one online visit. The model is downloaded once and then kept on your device.
+- **Online AI (optional, version 1.7)**: replies can come from a hosted model, streamed as they are written. Your provider key stays in a proxy you deploy, never in the page. Offline mode is the fallback. See the Online AI section.
 - **Backups**: export and import everything from the Profile page. The AI models page is linked from there.
 - **Speed**: Profile shows how fast replies have been on this device this session, and has a speed test. Nothing is sent anywhere.
 - **LFM2.5 1.2B Instruct (Liquid AI)** is prepared but **not offered**. It has not been verified, so it cannot be downloaded yet. To check it on a computer with internet access, run `node scripts/verify-model.mjs lfm2.5-1.2b`. See docs/LFM25_INTEGRATION.md.
@@ -42,6 +45,17 @@ Open a character's **Edit** page to set:
 - **Narration**: Balanced, Vivid or Minimal (how much the character describes their own actions).
 - **Reply length**: Short (the default), Medium or Detailed. Asking for detail in a message also gives a longer reply for that turn.
 - **Age and romance**: the character's age, and the romance level slider.
+
+## Online AI (version 1.7)
+
+Online AI is **off by default**. When you turn it on, each reply is written by a hosted model through **your own proxy** (`proxy/velora-proxy.js`), which holds your provider's API key.
+
+- **What is sent**: the character's details, the recent messages, the matching memories, and the short notes Velora writes from long chats. Nothing else.
+- **What is not sent**: your key is never sent to the page, stored in the browser, or written to a file. The page talks only to your proxy.
+- **Where it runs**: the proxy can run on a free Cloudflare Worker (reachable from an iPhone) or on your PC for testing. Step-by-step Windows instructions are in [docs/ONLINE_AI_SETUP.md](docs/ONLINE_AI_SETUP.md).
+- **Providers**: Google Gemini (default, free tier), or any OpenAI-compatible service such as Groq, Mistral or OpenRouter. The comparison, with its sources and caveats, is in [docs/ONLINE_AI_PROVIDERS.md](docs/ONLINE_AI_PROVIDERS.md).
+- **Switching**: Profile > AI mode. Online needs a proxy address, your agreement to send chats, and a successful test. Changing the address means testing again.
+- **Your characters, chats and memories are the same** in both modes. Offline mode needs no key and no account.
 
 ## Memories and models (v1.2 and 1.3)
 
@@ -69,7 +83,8 @@ js/ai/                  Device checks, WebLLM engine, model downloads, chat logi
 js/ui/                  Screens and shared helpers
 icons/                  Velora's original icons (made by scripts/make_icons.py)
 tests/                  Automatic tests (run with npm test)
-docs/                   GitHub Pages guide, iPhone guide, limitations
+proxy/                  Online AI proxy: holds the provider key (optional, see docs/ONLINE_AI_SETUP.md)
+docs/                   GitHub Pages guide, iPhone guide, Online AI guides, limitations
 ```
 
 No model files are in this project. The `.gitignore` also blocks them (`*.gguf`, `*.bin`, and so on).
@@ -107,7 +122,7 @@ You do not need to install Git. You can upload the files through the GitHub webs
 2. Click **+** (top right) > **New repository**.
 3. Name it `velora`. Choose **Public**. Click **Create repository**.
 4. On the new repository page, click **uploading an existing file**.
-5. Open the `Velora` folder on your PC, press **Ctrl+A** to select everything inside it (the files and the `js`, `css`, `icons`, `docs`, `scripts` and `tests` folders), and drag them onto the GitHub page.
+5. Open the `Velora` folder on your PC, press **Ctrl+A** to select everything inside it (the files and the `js`, `css`, `icons`, `docs`, `proxy`, `scripts` and `tests` folders), and drag them onto the GitHub page.
 6. Wait for the uploads to finish. Scroll down, then click **Commit changes**.
 7. Click **Settings** (top of the repository page) > **Pages** (left menu).
 8. Under **Build and deployment**, set **Source** to **Deploy from a branch**. Set **Branch** to **main** and the folder to **/ (root)**. Click **Save**.
@@ -148,6 +163,18 @@ The optional browser test opens Velora in Chromium and goes through the main flo
 npm i -D playwright
 npx playwright install chromium
 BASE_URL=http://127.0.0.1:8000/index.html node tests/browser-smoke.mjs
+```
+
+The online AI tests use a mock provider, so they need no key:
+
+```
+node tests/run-online.mjs
+```
+
+The optional online browser test starts the real local proxy and the mock provider, and drives Chromium at phone width (needs Playwright):
+
+```
+npm run test:online-browser
 ```
 
 To change the model, edit `MODELS` in `js/core/config.js`. The model ids must match the WebLLM prebuilt list for `WEBLLM_VERSION`.

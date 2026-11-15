@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.7.0
+
+Online AI: an optional mode that writes replies with a hosted model through a proxy you deploy. Offline mode is unchanged and remains the default.
+
+**Important:** no real AI provider was tested. No key was available and the build environment had no access to providers. Online AI is tested with a local proxy and a mock provider only. Run the test in docs/ONLINE_AI_SETUP.md before you rely on it.
+
+### What was added
+- **Proxy** (`proxy/velora-proxy.js`): holds the provider key, checks the web address that calls it, forwards the chat to Gemini or any OpenAI-compatible provider, and streams the reply back in one format. The key is never returned, echoed, or logged. It has no imports, so it can be pasted into a Cloudflare Worker. `proxy/local-server.mjs` runs it on a PC for testing.
+- **Page side**: `js/ai/online.js` (streaming, retry before a reply starts, stall timeout, Stop), `js/ai/mode.js` (the one rule for which mode is used, and the dispatch of replies and memory notes), `js/core/sse.js` (the event parser).
+- **Setup page** (`#/online`): proxy address, Test connection, consent, and a plain explanation of what is sent.
+- **Mode choice** on the Profile page, and an **Online / On device** badge in each chat.
+- **Limits for online mode** (`ONLINE_LIMITS` in `js/core/config.js`): more recent messages, more memories, and longer character text. The offline defaults are unchanged.
+- **Docs**: `docs/ONLINE_AI_SETUP.md` (Windows beginner steps), `docs/ONLINE_AI_PROVIDERS.md` (research and comparison with sources), `docs/ONLINE_TEST_REPORT.md` (what was and was not tested).
+- **Tests**: `tests/run-online.mjs` (41 checks), `tests/browser-online.mjs` (25 checks, Chromium at phone width), `tests/mock-gemini.mjs` (a mock provider in Gemini's streaming format).
+
+### Safety of the key
+- The key lives only in the proxy's secret settings. The page, browser storage, the project files and the GitHub repository never contain it. A test scans the project for key-like values.
+- `.gitignore` blocks `.env`, `.dev.vars` and key files.
+
+### Changed behaviour
+- A reply goes to the proxy only after the person chose Online AI, agreed that chats are sent, and a test to their proxy succeeded.
+- A reply cut off by the connection is shown as incomplete with a plain message. It is never reported as finished.
+- A failed online reply keeps the text that arrived. Offline mode stays available as the fallback.
+- Chats, characters and memories are not changed by this version. The About text now describes both modes.
+
+### Housekeeping
+- Version 1.7.0. The service worker cache is renamed (`velora-v10`).
+- Tests: 150 offline logic tests (unchanged), 41 online tests, 42 static files checked, 63 offline browser checks (unchanged), 25 online browser checks.
+
 ## 1.6.0
 
 LFM2.5 1.2B Instruct: integration prepared, verification tool added. **The model is not offered**, because nothing about it could be verified in this build. Llama 3.2 1B and Qwen2.5 0.5B are unchanged. Characters, chats, memories and the database are unchanged.

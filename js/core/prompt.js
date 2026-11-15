@@ -35,13 +35,13 @@ function characterBudget(contextTokens, replyTokens) {
 
 // Prompt for a normal reply. history must end with the user's latest message.
 // lengthGuide is the instruction for how long this reply should be (see persona.js replyLength).
-export function buildChatMessages({ character, history, memories, chatSummary, contextTokens, replyTokens, lengthGuide }) {
+export function buildChatMessages({ character, history, memories, chatSummary, contextTokens, replyTokens, lengthGuide, limits = LIMITS }) {
   const queryText = history.slice(-QUERY_MESSAGES).map((m) => m.text).join(' ');
-  const system = systemPrompt(character, memories, lengthGuide ?? LENGTHS.short.guide, history, chatSummary);
+  const system = systemPrompt(character, memories, lengthGuide ?? LENGTHS.short.guide, history, chatSummary, limits);
   const postHistory = clip(clean(character.postHistoryInstructions), 300);
 
   let remaining = characterBudget(contextTokens, replyTokens) - system.length - postHistory.length;
-  const recent = history.slice(-LIMITS.maxHistoryMessages);
+  const recent = history.slice(-limits.maxHistoryMessages);
   const turns = [];
 
   // Walk backwards from the newest message and keep as many as fit.
@@ -105,8 +105,8 @@ export function buildSummaryMessages({ character, transcript, existing = [], con
 // history: every saved message in order (oldest first), including the newest user message.
 // summaryThrough: how many of the oldest messages the current summary already covers.
 // Returns { from, to, transcript } for the messages to summarise next, or null when nothing is due.
-export function rollingSummaryStep(history, summaryThrough = 0) {
-  const dropped = Math.max(0, history.length - LIMITS.maxHistoryMessages);
+export function rollingSummaryStep(history, summaryThrough = 0, limits = LIMITS) {
+  const dropped = Math.max(0, history.length - limits.maxHistoryMessages);
   const covered = Math.max(0, summaryThrough);
   if (dropped - covered < LIMITS.rollingSummaryBatch) return null;
   const to = Math.min(dropped, covered + LIMITS.rollingSummaryChunk);
@@ -150,31 +150,34 @@ export function buildRollingSummaryMessages({ character, previous = '', transcri
 // The safety rules come last, so they are the final thing the model reads.
 export const TURN_MARK = 'For this reply:';
 
-function systemPrompt(character, memories, lengthGuide, history, chatSummary) {
+function systemPrompt(character, memories, lengthGuide, history, chatSummary, limits = LIMITS) {
+  // Online mode allows longer character text (textScale above 1). Offline keeps the original sizes.
+  const scale = limits.textScale ?? 1;
+  const size = (n) => Math.round(n * scale);
   const mode = contentMode(character);
   const queryText = history.slice(-QUERY_MESSAGES).map((m) => m.text).join(' ');
 
   const stable = [identityLine(character.name)];
 
-  const custom = clip(clean(character.systemPrompt), 700);
+  const custom = clip(clean(character.systemPrompt), size(700));
   if (custom) stable.push(custom);
 
-  const tagline = clip(clean(character.tagline), 120);
+  const tagline = clip(clean(character.tagline), size(120));
   if (tagline) stable.push(`Who ${character.name} is: ${tagline}.`);
 
-  const notes = clip(clean(character.personality), 300);
+  const notes = clip(clean(character.personality), size(300));
   if (notes) stable.push(`Personality notes: ${notes}`);
 
-  const backstory = clip(clean(character.backstory), 400);
+  const backstory = clip(clean(character.backstory), size(400));
   if (backstory) stable.push(`Background: ${backstory}`);
 
-  const scenario = clip(clean(character.scenario), 300);
+  const scenario = clip(clean(character.scenario), size(300));
   if (scenario) stable.push(`Current scenario: ${scenario}`);
 
-  const examples = clip(clean(character.exampleDialogue), 400);
+  const examples = clip(clean(character.exampleDialogue), size(400));
   if (examples) stable.push(`Example of how ${character.name} talks:\n${examples}`);
 
-  const extra = clip(clean(character.customInstructions), 300);
+  const extra = clip(clean(character.customInstructions), size(300));
   if (extra) stable.push(`Extra instructions: ${extra}`);
 
   stable.push(sceneRules(character.name));
@@ -187,8 +190,8 @@ function systemPrompt(character, memories, lengthGuide, history, chatSummary) {
   // The memories most relevant to what is being discussed, plus any pinned ones. Written oldest first.
   const memoryLines = selectMemoryLines(memories, {
     query: queryText,
-    limit: LIMITS.maxMemories,
-    charBudget: LIMITS.memoryChars,
+    limit: limits.maxMemories,
+    charBudget: limits.memoryChars,
   });
   if (memoryLines.length) {
     changing.push(

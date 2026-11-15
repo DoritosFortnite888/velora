@@ -1,7 +1,7 @@
 // Velora settings. Change values here; the rest of the app reads them from this file.
 
 export const APP_NAME = 'Velora';
-export const APP_VERSION = '1.6.0';
+export const APP_VERSION = '1.7.0';
 
 // The on-device AI library (WebLLM). It is loaded from a public CDN at this exact version,
 // so an update cannot change behaviour without you noticing. If the library stops loading,
@@ -105,6 +105,26 @@ export const LIMITS = {
   rollingSummaryTokens: 180, // longest summary of older messages the model may write
   rollingSummaryBatch: 8,    // messages that must fall out of the prompt window before a summary update
   rollingSummaryChunk: 30,   // most messages read in one summary update
+};
+
+// Online AI. Used only when the person chooses it, agrees to send chats, and a test to their own proxy
+// succeeds (see js/ai/mode.js). No provider key is ever in this file or in the page: the key lives in the
+// proxy (proxy/velora-proxy.js). Keep these numbers small enough for a free-tier provider.
+export const ONLINE = {
+  stallMs: 45000,        // no new text for this long = the connection is treated as stalled
+  retryDelayMs: 900,     // wait before trying to connect again (grows each time)
+  connectAttempts: 3,    // tries to connect before giving up (only when no connection was made)
+};
+
+// Limits for online mode. A large online model can read more of the chat and more memories than the
+// on-device model, so these are higher. Everything else is inherited from LIMITS.
+export const ONLINE_LIMITS = {
+  ...LIMITS,
+  contextTokens: 12000,      // prompt budget in tokens (the on-device model has 4096)
+  maxHistoryMessages: 40,    // recent messages sent (on device: 20)
+  maxMemories: 24,           // memories sent per message (on device: 12)
+  memoryChars: 1800,         // characters of memories sent per message (on device: 700)
+  textScale: 2,              // character text fields may be twice as long (on device: 1)
 };
 
 // Settings for generating a reply. They favour coherence over variety, and the penalties discourage
