@@ -33,6 +33,34 @@ The stub AI library in the browser test returns fake replies. It proves Velora's
 - **Action formatting depends on the model using asterisks.** Velora shows *asterisk actions* in italics. If a model writes actions some other way, they appear as normal text.
 - **Velora cannot stop a model from narrating your actions.** Its style guide asks the model not to, but it may still do it.
 
+## Version 1.3.1: natural roleplay
+
+**Read this first.** These changes shape what the model is asked to do. They do not change the model itself. A small model can still ignore instructions, write generic replies, or repeat itself. Nothing in this version has been scored on a real model, so the roleplay quality is not proven.
+
+- **What changed in the prompt.** The character comes first. A short scene section says that dramatic lines are fiction. The style guide is positive now, with one format example that the model is told not to copy. Each reply gets short direction: what the user's latest message means in the scene, how the character's traits show, and what the recent replies already used. The safety rules are still last.
+- **Situation detection is word-based.** It reads patterns such as "I'm going to eliminate you" or "I'm scared". It can miss a message that says the same thing in other words, and it can misread a sentence. A misread only changes the direction the model is given, but it can still cause a wrong reaction.
+- **Real-world concerns are flagged by simple markers.** A threat or insult is treated as a real concern when violent words appear with a real-world marker, such as "for real", "in real life", "irl", "I know where you live", or a named real person ("my boss"). A message about ending one's life is always treated as a real concern. The marker list is short, so a real threat written without these words may be treated as fiction. Velora is not a safety service. If someone may be in danger, they should contact local emergency services.
+- **Repetition avoidance uses the last four replies.** It lists recent actions and verbs, and the opening words used in the last three replies. It cannot stop a model from repeating a phrase it was not shown, and it cannot make a model follow the list.
+- **Formatting fixes run on every reply.** Dialogue inside asterisks is moved out, and short action phrases in brackets such as (looks away) are changed to italics. Ordinary words in brackets are left alone. The fixes are small and do not change the meaning, but they are not a full parser.
+- **Protections are kept, in fewer words.** The adult rules still ban sexual content, anyone under 18, and pressure on the user. The rules about the user's pace are now written as limits, not lectures. Friendly mode is no longer described as "friendly" in a way that softens anger or sadness. Romance is still limited to confirmed adults.
+- **Prompt size.** The system prompt is about 1,300 tokens for a starter character, within the 4,096-token window. The chat history that fits is smaller than before, by a few hundred tokens.
+
+### What was tested for version 1.3.1
+
+| Area | How it was checked |
+|---|---|
+| Identity line first, scene framing, real-world exception, safety rules kept | `npm test` (automatic) |
+| Situation detection for threats, insults, anger, fear, sadness, affection, surprise, playful, confusion, questions, neutral | `npm test` (automatic) |
+| Dramatic threats stay in the story; sincere threats and self-harm lines are flagged | `npm test` (automatic) |
+| Personality reactions differ between characters | `npm test` (automatic) |
+| Recent actions, verbs and openings are listed to be avoided; no note on the first reply | `npm test` (automatic) |
+| Action and speech formatting fixes | `npm test` (automatic) |
+| Imports, exports, icon names and syntax | `tests/check-static.mjs` (automatic) |
+| **Real model reacting in character to threats, sadness, insults or jokes** | **Not tested.** |
+| **Real model avoiding repeated actions over a long chat** | **Not tested.** |
+| **Real model keeping a trait over many replies** | **Not tested.** |
+| **Real model on iPhone 14** | **Not tested.** |
+
 ## Version 1.3: models, chat summaries and no artificial waiting
 
 **Read this first.** No model in this version has been run on an iPhone 14 by this project, and the figures below come from WebLLM's own published memory numbers and third-party reports. The most useful evidence we found is a third-party report of an iPhone 11 Pro Max on iOS 26-era Safari: Qwen2.5 1.5B failed to load after downloading, and Llama 3.2 1B reached generation before Safari reloaded the page mid-reply. Those results suggest that a 1B model is at the edge of what an iPhone can run, and that the 3B model is likely out of reach. We have not reproduced those results ourselves.

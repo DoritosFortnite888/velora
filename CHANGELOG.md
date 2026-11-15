@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.3.1
+
+Natural roleplay fixes. Nothing was rebuilt. Characters, chats, memories, settings and the database are unchanged.
+
+**Important:** these are changes to the instructions sent to the model. Nothing here has been run on a real model. See docs/LIMITATIONS.md.
+
+### Staying inside the scene
+- The system prompt now opens with the character's identity: the character speaks and acts as themselves, in the first person, and is not an assistant. A custom system prompt is still kept after it. (`js/core/persona.js`, `js/core/prompt.js`)
+- A new scene section says that threats, insults, arguments and dramatic lines are part of the fiction. It tells the model not to stop the scene to talk about rules, boundaries or safety. It keeps the exception for a sincere real-world concern. (`sceneRules` in `js/core/persona.js`)
+- The style guide is written as positive guidance, with a format example the model is told not to copy. It replaces the long list of "Never" rules. (`NATURAL_STYLE` in `js/core/persona.js`)
+
+### Reacting to the scene
+- A new per-reply section reads the user's latest message and sets the situation: a dramatic threat in the story, an insult, anger, fear, sadness, affection, surprise, a joke, confusion, a question, or a real concern. (`js/core/reactions.js`)
+- A sincere real-world threat (violent words with a real-world marker) or a message about ending one's life is flagged as a real concern, so the model steps out of the story and responds with care.
+- Each personality trait has its own reaction style. Shy, sarcastic, dominant, gentle and the other traits now react differently. Characters with no traits are told to react from their personality notes and background. (`js/core/config.js`, `js/core/reactions.js`)
+- Reaction direction depends on the user's message length: a few words get a short reply, a long message gets a fuller one.
+
+### Avoiding repetition
+- The last four replies are checked for repeated actions and action verbs. The model is told not to reuse them.
+- If the last three replies all began with an action, the model is told to begin with speech. If every recent reply used an action, the model is told to skip the action this time.
+- If the last three replies started with the same word, that word is listed as not to be used.
+
+### Formatting
+- Dialogue inside asterisks is moved outside them. Short action phrases in brackets, such as (looks away) or [smiles], are italicised. Ordinary parentheses are left alone. This runs on every reply. (`normaliseRoleplayText` in `js/core/format.js`)
+
+### Safety rules
+- The adult and friendly rules are reworded as short limits. Every protection is kept: no sexual content, no one under 18, no pressure or control of the user, honesty about being an AI when sincerely asked, and romance only for confirmed adults. Friendly mode no longer softens anger, sadness or conflict inside the story. (`js/core/safety.js`)
+
+### Housekeeping
+- Version 1.3.1. The service worker cache is renamed (`velora-v5`).
+- Tests: 113 logic tests (was 92).
+
 ## 1.3.0
 
 Upgrade of the 1.2 app. Nothing was rebuilt. Characters, chats, memories and settings are kept. The database version did not change, so no data is converted.

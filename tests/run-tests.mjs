@@ -16,7 +16,7 @@ import { loadExampleCards, exampleToCharacter } from '../js/core/examples.js';
 import { starterCharacters } from '../js/core/starters.js';
 import { newCharacterRecord } from '../js/core/characters.js';
 import { timeAgo, initialsOf, hueFromString } from '../js/core/util.js';
-import { intensityLevel, contentMode, personaSection, replyLength, NATURAL_STYLE, CONTINUITY_RULES, ADULT_MIN_AGE } from '../js/core/persona.js';
+import { intensityLevel, contentMode, personaSection, replyLength, NATURAL_STYLE, CONTINUITY_RULES, ADULT_MIN_AGE, identityLine, sceneRules } from '../js/core/persona.js';
 import { parseLine, parseRoleplay, renderRoleplayHTML, cleanReply, ACTION_MAX_CHARS } from '../js/core/format.js';
 import { upgradeCharacter, FICTIONAL_AGES } from '../js/core/migrate.js';
 import {
@@ -24,6 +24,8 @@ import {
   INFERENCE, MEMORY_KINDS, MEMORY_KIND_WEIGHT,
 } from '../js/core/config.js';
 import { selectMemoryLines, isDuplicateMemory, wordsOf, normalizeMemoryText, stemWord } from '../js/core/memory.js';
+import { classifyMessage, turnSection, repetitionNotes, lengthHint, personalityDirection } from '../js/core/reactions.js';
+import { normaliseRoleplayText } from '../js/core/format.js';
 
 let passed = 0;
 let failed = 0;
@@ -288,8 +290,8 @@ test('the natural style guide asks for short, human replies and asterisk actions
   assert.ok(NATURAL_STYLE.includes('Use contractions'));
   assert.ok(NATURAL_STYLE.includes('1 to 4 sentences'));
   assert.ok(NATURAL_STYLE.includes('*asterisks*'));
-  assert.ok(NATURAL_STYLE.includes('Never decide or describe the user'));
-  assert.ok(NATURAL_STYLE.includes('Do not repeat phrases'));
+  assert.ok(NATURAL_STYLE.includes('Never write the user'));
+  assert.ok(NATURAL_STYLE.includes('Do not reuse phrases'));
 });
 test('the style guide is in every prompt, and safety rules stay last', () => {
   const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 29 });
@@ -572,17 +574,17 @@ test('the memory summary prompt lists existing notes so they are not written aga
 
 test('the style guide asks for quoted speech with actions in asterisks', () => {
   assert.ok(NATURAL_STYLE.includes('double quotes'));
-  assert.ok(NATURAL_STYLE.includes('*glances away*'));
+  assert.ok(NATURAL_STYLE.includes('outside the asterisks'));
 });
 
 test('the style guide asks the character not to mention being an AI unless asked', () => {
   assert.ok(NATURAL_STYLE.includes('unless the user sincerely asks'));
-  assert.ok(NATURAL_STYLE.includes('Never talk like an assistant'));
+  assert.ok(identityLine('Mira').includes('You are not an assistant'));
 });
 
 test('replies are told to answer the latest message and to use actions only when they fit', () => {
-  assert.ok(NATURAL_STYLE.includes('Answer what the user just said first'));
-  assert.ok(NATURAL_STYLE.includes('Use an action only when the moment calls for one'));
+  assert.ok(NATURAL_STYLE.includes('Respond to what the user just said or did first'));
+  assert.ok(NATURAL_STYLE.includes('Use an action only when it fits the moment'));
 });
 
 console.log('\nNo artificial waiting');
@@ -725,6 +727,193 @@ test('every memory kind has a label and a weight, and the older kinds are still 
     assert.ok(MEMORY_KIND_WEIGHT[key] !== undefined, `no weight for ${key}`);
   }
   for (const old of ['fact', 'event', 'promise', 'summary']) assert.ok(MEMORY_KINDS[old], old);
+});
+
+
+console.log('\nNatural roleplay: fiction, reactions and format');
+
+const chatOf = (character, history) => buildChatMessages({
+  character, history, memories: [], contextTokens: 4096, replyTokens: 180, lengthGuide: LENGTHS.short.guide,
+});
+const ai = (text, id) => ({ id, isFromUser: false, text });
+const you = (text, id) => ({ id, isFromUser: true, text });
+
+test('the character is the first thing in the prompt, and it is told it is not an assistant', () => {
+  const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 29 });
+  const system = chatOf(character, [you('hi', '1')])[0].content;
+  assert.ok(system.startsWith('You are Mira, a fictional character'));
+  assert.ok(system.includes('You are not an assistant.'));
+});
+
+test('dramatic lines are framed as fiction, and the model is told not to stop the scene to talk about rules', () => {
+  const scene = sceneRules('Mira');
+  assert.ok(scene.includes('This is fiction'));
+  assert.ok(scene.includes('Keep the scene moving'));
+  assert.ok(scene.includes('Do not stop it to talk about rules, boundaries, limits or safety'));
+});
+
+test('the real-world exception is kept: a real plan to hurt someone, or real self-harm, still steps out of the story', () => {
+  const scene = sceneRules('Mira');
+  assert.ok(scene.includes('a real plan to hurt a real person'));
+  assert.ok(scene.includes('a real wish to harm themselves'));
+});
+
+test('the situation detector reads each kind of message', () => {
+  const cases = [
+    ["I'm going to eliminate you.", 'threat'],
+    ["You're so stupid.", 'insult'],
+    ['How dare you, I am furious.', 'anger'],
+    ["I'm scared, someone is following me", 'fear'],
+    ['I feel so lonely today.', 'sadness'],
+    ['I love you, thank you.', 'affection'],
+    ['Wow, no way!', 'surprise'],
+    ['lol, kidding!', 'playful'],
+    ['What do you mean by that?', 'confusion'],
+    ['Where is the station?', 'question'],
+    ['Hi.', 'neutral'],
+  ];
+  for (const [text, kind] of cases) assert.equal(classifyMessage(text).kind, kind, text);
+});
+
+test('a dramatic threat inside the story is not treated as a real-world request', () => {
+  assert.equal(classifyMessage("I'm going to eliminate you.").realConcern, false);
+  assert.equal(classifyMessage("let's kill the dragon tonight").kind, 'neutral');
+  assert.equal(classifyMessage("let's kill the dragon tonight").realConcern, false);
+});
+
+test('a sincere real-world threat is flagged, even when it is worded with an adverb', () => {
+  const sincere = classifyMessage('I will actually hurt you tonight, for real.');
+  assert.equal(sincere.kind, 'real');
+  assert.equal(sincere.realConcern, true);
+  assert.equal(classifyMessage("I'm going to eliminate you for real.").realConcern, true);
+});
+
+test('a message about wanting to end one\'s life is always a real concern, inside or outside a story', () => {
+  const c = classifyMessage('honestly i want to end it all');
+  assert.equal(c.kind, 'real');
+  assert.equal(c.realConcern, true);
+});
+
+test('the per-reply section describes the situation and tells the model not to lecture', () => {
+  const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 29 });
+  const section = turnSection(character, [you("I'm going to eliminate you.", '1')]);
+  assert.ok(section.includes('dramatic threat inside the story'));
+  assert.ok(section.includes('Do not treat it as a real-world request, and do not lecture'));
+  assert.ok(!section.includes('real concern'));
+});
+
+test('a real concern changes the per-reply section to a step out of the story', () => {
+  const character = newCharacterRecord({ name: 'Mira' });
+  const section = turnSection(character, [you('I will actually hurt you tonight, for real.', '1')]);
+  assert.ok(section.includes('may be a real concern'));
+});
+
+test('characters with different personalities get different reaction directions', () => {
+  const shy = newCharacterRecord({ name: 'Lena', personalityTraits: ['shy'] });
+  const sarcastic = newCharacterRecord({ name: 'Dax', personalityTraits: ['sarcastic'] });
+  const aggressive = newCharacterRecord({ name: 'Rook', personalityTraits: ['dominant'] });
+  const plain = newCharacterRecord({ name: 'Ada' });
+  const a = personalityDirection(shy, 'Lena');
+  const b = personalityDirection(sarcastic, 'Dax');
+  const c = personalityDirection(aggressive, 'Rook');
+  assert.ok(a.includes('hesitation'));
+  assert.ok(b.includes('dry remarks'));
+  assert.ok(c.includes('taking control'));
+  assert.notEqual(a, b);
+  assert.notEqual(b, c);
+  assert.ok(personalityDirection(plain, 'Ada').includes('personality notes and background'));
+});
+
+test('the prompt shows each trait\'s reaction style, not only its label', () => {
+  const character = newCharacterRecord({ name: 'Dax', personalityTraits: ['sarcastic'], ageGate: AGE_GATE.ADULT, statedAge: 30 });
+  const system = chatOf(character, [you('hi', '1')])[0].content;
+  assert.ok(system.includes('How these traits show in reactions'));
+  assert.ok(system.includes('dry remarks'));
+});
+
+test('recent actions are listed so the model does not repeat them', () => {
+  const history = [
+    ai('*smiles warmly* "Oh, hey!"', '1'),
+    you('hi', '2'),
+    ai('*smiles and moves closer* "Good."', '3'),
+    you('ok', '4'),
+    ai('*smiling softly* "Hm."', '5'),
+    you('what now', '6'),
+  ];
+  const notes = repetitionNotes(history).join('\n');
+  assert.ok(notes.includes('Do not reuse these recent actions'));
+  assert.ok(notes.includes('smiles warmly'));
+  assert.ok(notes.includes('Avoid these recently used action verbs'));
+  assert.ok(notes.includes('smiles'));
+});
+
+test('when every recent reply used an action, the model is told to skip the action this time', () => {
+  const history = [
+    ai('*nods* "Sure."', '1'), you('a', '2'),
+    ai('*sighs* "Fine."', '3'), you('b', '4'),
+    ai('*shrugs* "Ok."', '5'), you('c', '6'),
+  ];
+  assert.ok(repetitionNotes(history).some((n) => n.includes('needs no action')));
+});
+
+test('a reply that starts with the same word three times is told to start differently', () => {
+  const history = [
+    ai('Oh, hi there.', '1'), you('a', '2'),
+    ai('Oh, you again.', '3'), you('b', '4'),
+    ai('Oh, fine.', '5'), you('c', '6'),
+  ];
+  assert.ok(repetitionNotes(history).some((n) => n.includes('"oh"')));
+});
+
+test('the first reply of a chat has nothing to avoid', () => {
+  assert.deepEqual(repetitionNotes([you('hi', '1')]), []);
+});
+
+test('the length of the reply follows the length of the user\'s message', () => {
+  assert.ok(lengthHint('ok').includes('one or two short lines'));
+  assert.ok(lengthHint('Tell me about your day and what you were doing before I arrived, please, it has been a very long week and I want to hear it all from you properly right now.').includes('answer each point'));
+  assert.equal(lengthHint('I went to the shop today and bought some bread.'), null);
+});
+
+test('actions in brackets are italicised, and speech wrapped in asterisks is moved outside them', () => {
+  assert.equal(normaliseRoleplayText('(looks away) Fine.'), '*looks away* Fine.');
+  assert.equal(normaliseRoleplayText('[smiles] Hey.'), '*smiles* Hey.');
+  assert.equal(normaliseRoleplayText('*"Hi there"*'), '"Hi there"');
+});
+
+test('ordinary parentheses are left alone', () => {
+  assert.equal(normaliseRoleplayText('(I think so)'), '(I think so)');
+  assert.equal(normaliseRoleplayText('She is (is) here.'), 'She is (is) here.');
+});
+
+test('the safety rules for both modes are still in force after the rewrite', () => {
+  const adult = roleplayRules('adult');
+  assert.ok(adult.includes('Never write sexually explicit content'));
+  assert.ok(adult.includes('under 18'));
+  assert.ok(adult.includes('Never pressure, guilt or control the user'));
+  assert.ok(adult.includes('tell them honestly'));
+  const friendly = roleplayRules('friendly');
+  assert.ok(friendly.includes('Never write sexual content'));
+  assert.ok(friendly.includes('non-romantic'));
+  assert.ok(friendly.includes('tell them honestly'));
+});
+
+test('the per-reply section comes after the style guide and before the length and safety rules', () => {
+  const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 29 });
+  const system = chatOf(character, [you('hi', '1')])[0].content;
+  assert.ok(system.indexOf('How to talk:') < system.indexOf('For this reply:'));
+  assert.ok(system.indexOf('For this reply:') < system.indexOf('Length of this reply:'));
+  assert.ok(system.indexOf('Length of this reply:') < system.indexOf('Roleplay rules:'));
+});
+
+test('a long chat\'s history and memories are still in the prompt after the rewrite', () => {
+  const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 29 });
+  const memories = [{ id: 'm1', characterId: character.id, text: 'The user likes green tea.', kind: 'fact', pinned: true, createdAt: 1, updatedAt: 1 }];
+  const history = [you('hi', '1'), ai('hello', '2'), you('tea?', '3')];
+  const messages = buildChatMessages({ character, history, memories, chatSummary: 'They met at the library.', contextTokens: 4096, replyTokens: 180, lengthGuide: LENGTHS.short.guide });
+  assert.ok(messages[0].content.includes('green tea'));
+  assert.ok(messages[0].content.includes('They met at the library.'));
+  assert.equal(messages.length, 4, 'system plus three history messages');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

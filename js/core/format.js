@@ -63,6 +63,26 @@ export function renderRoleplayHTML(text) {
     .join('');
 }
 
+// Fixes common formatting slips in a model reply, so the roleplay format holds:
+//  - dialogue wrapped in asterisks (*"Hi"*) is moved outside them,
+//  - an action written in parentheses or square brackets, such as (laughs softly), becomes *laughs softly*.
+// Only short, plain action phrases are changed, so ordinary parenthesised words are left alone.
+export function normaliseRoleplayText(text) {
+  let out = String(text ?? '');
+  out = out.replace(/\*\s*"([^"\n*]{1,400})"\s*\*/g, '"$1"');
+  const asAction = (match, inner) => {
+    const phrase = inner.trim();
+    const words = phrase.split(/\s+/);
+    const first = words[0].toLowerCase();
+    // A third-person or past-tense verb: looks, nods, sighs, smiled, tilted. Short words are skipped.
+    if (words.length > 12 || first.length < 4 || !/(s|ed|ing)$/.test(first)) return match;
+    return `*${phrase}*`;
+  };
+  out = out.replace(/\(([a-z][a-z' ,-]{1,80})\)/g, asAction);
+  out = out.replace(/\[([a-z][a-z' ,-]{1,80})\]/g, asAction);
+  return out;
+}
+
 // Tidies a model reply before it is saved:
 //  - removes special chat tokens that leaked into the text,
 //  - cuts off anything after the model starts writing the user's lines,
@@ -70,6 +90,7 @@ export function renderRoleplayHTML(text) {
 export function cleanReply(text, characterName = '') {
   let out = String(text ?? '').replace(/\r\n?/g, '\n');
   out = out.replace(/<\|[^|>\n]{1,40}\|>/g, '');
+  out = normaliseRoleplayText(out);
   out = out.split(/\n\s*\[?user\]?\s*:/i)[0];
   if (characterName) {
     const escaped = characterName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

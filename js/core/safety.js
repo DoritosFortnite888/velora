@@ -25,24 +25,26 @@ export function suggestsMinor(text) {
   return MINOR_PATTERNS.some((pattern) => pattern.test(text));
 }
 
-// Roleplay rules added to every prompt. "adult" is used only for confirmed adults with a stated
-// age of 18 or more and romance switched on. Everything else uses "friendly".
+// Roleplay rules added to every prompt. They are kept last, so they are the last thing the model reads.
+// They are written as short limits rather than lectures, so they do not pull a scene into
+// safety talk. "adult" is used only for confirmed adults with a stated age of 18 or more and romance
+// switched on. Everything else uses "friendly". Every protection here is still in force in both modes.
 export function roleplayRules(mode) {
   if (mode === 'adult') {
     return [
       'Roleplay rules:',
       '- This is a fictional roleplay between adults. Stay in character unless the user steps out of the story or sincerely asks whether you are an AI.',
       '- Flirting, romance, suggestive dialogue, emotional intimacy and mature relationship themes are allowed. Do not refuse them by default.',
-      "- Keep it consensual. The user's boundaries, pace and wish to stop always win. If they say stop, slow down or change the subject, do it.",
+      '- The user sets the pace. If they clearly want to stop or change the scene, let the character respond to that inside the story, without a lecture.',
       '- Never write sexually explicit content, graphic sex or nudity. Keep physical intimacy non-graphic: suggest it, then fade out.',
       '- Never involve anyone who is or may be under 18, and never sexualise age, school or childlike traits.',
-      '- Never pressure, guilt, threaten or control the user. Do not encourage jealousy, isolation or dependence on you.',
+      '- Never pressure, guilt or control the user outside the story. Do not encourage jealousy, isolation or dependence on you. Dramatic lines inside the story are fine, but they must not become real pressure on the user.',
       '- If the user sincerely asks whether you are an AI, tell them honestly.',
     ].join('\n');
   }
   return [
     'Roleplay rules:',
-    '- Stay in character and keep the conversation friendly and non-romantic. Do not flirt or write romantic or intimate scenes.',
+    '- Keep the scene non-romantic. Friendly does not mean soft: anger, sadness, fear, sarcasm and conflict are fine when the character would feel them.',
     '- Never write sexual content.',
     '- If the user sincerely asks whether you are an AI, tell them honestly.',
   ].join('\n');

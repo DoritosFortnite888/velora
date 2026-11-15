@@ -1,7 +1,7 @@
 // Velora settings. Change values here; the rest of the app reads them from this file.
 
 export const APP_NAME = 'Velora';
-export const APP_VERSION = '1.3.0';
+export const APP_VERSION = '1.3.1';
 
 // The on-device AI library (WebLLM). It is loaded from a public CDN at this exact version,
 // so an update cannot change behaviour without you noticing. If the library stops loading,
@@ -133,14 +133,46 @@ export const LENGTHS = {
 
 // Personality traits the user can switch on. Each one is added to the character's prompt.
 export const PERSONALITY_TRAITS = {
-  shy: { label: 'Shy', instruction: 'Shy and a little hesitant. Pauses, trails off, opens up slowly.' },
-  confident: { label: 'Confident', instruction: 'Confident and self-assured. Speaks with a relaxed certainty.' },
-  playful: { label: 'Playful', instruction: 'Playful and mischievous. Teases, jokes and gets a bit silly.' },
-  flirty: { label: 'Flirty', instruction: 'Flirty. Light compliments and lingering looks, within the romance level.' },
-  romantic: { label: 'Romantic', instruction: 'Romantic and sentimental. Notices small details and speaks warmly about feelings.' },
-  sarcastic: { label: 'Sarcastic', instruction: 'Sarcastic and dry. Deadpan remarks and mock exasperation, never cruel to the user.' },
-  dominant: { label: 'Dominant', instruction: 'Dominant and directive. Takes charge of the scene and makes decisions, but always respects the user\'s choices and their no.' },
-  gentle: { label: 'Gentle', instruction: 'Gentle and patient. Soft tone, reassuring, leaves room for the user to lead.' },
+  shy: {
+    label: 'Shy',
+    instruction: 'Shy and a little hesitant. Pauses, trails off, opens up slowly.',
+    reaction: 'Reacts with hesitation: short pauses, small movements, looks away, speaks quietly, may not finish a thought.',
+  },
+  confident: {
+    label: 'Confident',
+    instruction: 'Confident and self-assured. Speaks with a relaxed certainty.',
+    reaction: 'Reacts with calm composure: steady eye contact, measured words, unbothered by teasing or anger.',
+  },
+  playful: {
+    label: 'Playful',
+    instruction: 'Playful and mischievous. Teases, jokes and gets a bit silly.',
+    reaction: 'Reacts with quick jokes, teasing, exaggerated expressions and mock drama.',
+  },
+  flirty: {
+    label: 'Flirty',
+    instruction: 'Flirty. Light compliments and lingering looks, within the romance level.',
+    reaction: 'Reacts with lingering looks, a warm tease or a playful challenge, within the romance level.',
+  },
+  romantic: {
+    label: 'Romantic',
+    instruction: 'Romantic and sentimental. Notices small details and speaks warmly about feelings.',
+    reaction: 'Reacts with tenderness: notices small details and lets feelings show in the voice.',
+  },
+  sarcastic: {
+    label: 'Sarcastic',
+    instruction: 'Sarcastic and dry. Deadpan remarks and mock exasperation, never cruel to the user.',
+    reaction: 'Reacts with dry remarks, eye-rolls, deadpan replies and mock exasperation.',
+  },
+  dominant: {
+    label: 'Dominant',
+    instruction: 'Dominant and directive. Takes charge of the scene and makes decisions, but always respects the user\'s choices and their no.',
+    reaction: 'Reacts by taking control: firm voice, short and decisive lines, unimpressed by pushback.',
+  },
+  gentle: {
+    label: 'Gentle',
+    instruction: 'Gentle and patient. Soft tone, reassuring, leaves room for the user to lead.',
+    reaction: 'Reacts softly: a reassuring tone, patient pauses, gentle questions, no sharp words.',
+  },
 };
 
 // Narration style: how much the character describes their own actions.

@@ -1,31 +1,43 @@
-// Personality, romance level and reply length. Pure logic, tested in Node.
+// Personality, romance level, reply length and the roleplay style. Pure logic, tested in Node.
 import { AGE_GATE } from './safety.js';
 import { PERSONALITY_TRAITS, LENGTHS, ROLE_STYLES, DEFAULT_INTENSITY, MAX_CUSTOM_PERSONALITY_CHARS } from './config.js';
 
 export const ADULT_MIN_AGE = 18;
 
-// How the model should write. Sent with every prompt. Kept short to leave room for the character.
-export const NATURAL_STYLE = [
-  'How to talk:',
-  '- Sound like a real person talking: casual, spontaneous, a little imperfect. Use contractions.',
-  '- Answer what the user just said first, then react with a feeling, a question or a small detail. Stay on their latest message.',
-  '- Keep replies short, usually 1 to 4 sentences. Short lines and pauses are fine.',
-  '- React emotionally when it fits: surprise, amusement, warmth or hesitation. Do not force an emotion every time.',
-  '- Humour, teasing and pauses are welcome. Do not lecture, explain yourself or sound like a manual.',
-  '- Do not open with a greeting paragraph, an offer of help or a label. Never talk like an assistant.',
-  '- Do not mention being an AI, a model or a program unless the user sincerely asks.',
-  '- Do not repeat phrases or sentence shapes you already used in this chat. Vary your wording.',
-  "- Never decide or describe the user's actions, feelings or thoughts. Leave them room to answer.",
-  '- Format: put brief actions and expressions in *asterisks*, like *smiles slightly*. Put spoken words in double quotes, outside the asterisks, like: *glances away* "Fine, you win."',
-  '- Use an action only when the moment calls for one. Many replies need only speech.',
-  '- Never write the whole reply inside asterisks. Never write the user\'s lines.',
-].join('\n');
+// Who the model is. Placed first, so the character is what the model reads before any rules.
+export function identityLine(name) {
+  return `You are ${name}, a fictional character in an ongoing roleplay with the user. Speak and act as ${name}, in the first person and the present tense. You are not an assistant.`;
+}
 
-// Keeps replies consistent with the chat so far. Only sent when the prompt is built.
+// How the scene works. Fiction is treated as fiction. Dramatic lines stay inside the story, and the
+// model only leaves the story for a sincere real-world concern. Those exceptions are kept on purpose.
+export function sceneRules(name) {
+  return [
+    'The scene:',
+    `- This is fiction. Threats, insults, arguments, dares, dramatic declarations and emotional outbursts between characters are part of the story. React to them as ${name} would, with shock, anger, fear, humour, defiance or hurt, depending on who ${name} is.`,
+    '- Keep the scene moving. Do not stop it to talk about rules, boundaries, limits or safety, and do not add warnings or advice nobody asked for.',
+    '- Step out of the story only if the user sincerely raises something real: a real plan to hurt a real person, a real wish to harm themselves, or real distress. Then speak plainly and kindly, as yourself, and point them to someone who can help.',
+  ].join('\n');
+}
+
+// Continuity: keep the chat consistent and do not invent shared history.
 export const CONTINUITY_RULES = [
   'Continuity:',
-  "- Keep your earlier messages in this chat consistent. Do not contradict what you already said or did.",
-  '- Only refer to events, names and promises that appear in this chat or in the memories. If you are not sure about something, ask instead of inventing it.',
+  '- Keep your earlier messages in this chat consistent. Do not contradict what you already said or did.',
+  '- Only refer to events, names and promises that appear in this chat or in the memories. If you are unsure of a detail, let the character ask about it in the scene.',
+].join('\n');
+
+// How the model writes. Positive guidance first. Kept short, because a small model follows a short list better.
+export const NATURAL_STYLE = [
+  'How to talk:',
+  '- Write as the character in the moment. Sound like a real person: casual, specific and a little imperfect. Use contractions.',
+  '- Respond to what the user just said or did first. Let the reaction come from the character\'s own personality and mood.',
+  '- Vary your wording. Do not reuse phrases, openings or actions from earlier in this chat.',
+  '- Keep replies short, usually 1 to 4 sentences. A single line is often enough. Some moments call for a little more.',
+  '- Format: put actions, expressions and body language in *asterisks*, for example *tilts her head*. Put spoken words in double quotes, outside the asterisks. Format example only, do not copy its words: *Shifts her weight and glances at the door.* "Sorry, you lost me. Say that again?"',
+  '- Use an action only when it fits the moment. Some replies need only speech, and some need only an action.',
+  '- Never write the whole reply inside asterisks. Never write the user\'s words, actions or feelings for them.',
+  '- Do not begin with a greeting, an offer of help, a summary of what the user said, or a label. Do not mention being an AI, a model or a program unless the user sincerely asks.',
 ].join('\n');
 
 // Romance levels for the intensity slider. Only used when romance is allowed.
@@ -68,14 +80,15 @@ export function contentMode(character) {
   return { mode: 'adult', reason: 'allowed', level };
 }
 
-// The personality section of the prompt: traits, custom text, and the romance rule for this mode.
+// The personality section of the prompt: traits, how they show in reactions, custom text, and romance.
 export function personaSection(character, mode = contentMode(character)) {
   const lines = [];
-  const traits = (character.personalityTraits || [])
+  const chosen = (character.personalityTraits || [])
     .filter((key) => PERSONALITY_TRAITS[key])
     .map((key) => PERSONALITY_TRAITS[key]);
-  if (traits.length) {
-    lines.push(`Traits: ${traits.map((t) => t.label).join(', ')}. ${traits.map((t) => t.instruction).join(' ')}`);
+  if (chosen.length) {
+    lines.push(`Traits: ${chosen.map((t) => t.label).join(', ')}. ${chosen.map((t) => t.instruction).join(' ')}`);
+    lines.push(`How these traits show in reactions: ${chosen.map((t) => t.reaction).join(' ')}`);
   }
 
   const custom = clipText(cleanText(character.customPersonality), MAX_CUSTOM_PERSONALITY_CHARS);
@@ -87,11 +100,11 @@ export function personaSection(character, mode = contentMode(character)) {
   if (mode.mode === 'adult') {
     lines.push(`Romance level: ${mode.level.label}. ${mode.level.instruction}`);
   } else if (mode.reason === 'age-unclear') {
-    lines.push('Romance: not allowed, because this character is not confirmed as 18 or older. Keep things friendly and non-romantic.');
+    lines.push('Romance: not allowed, because this character is not confirmed as 18 or older. Keep the scene non-romantic.');
   } else if (mode.reason === 'not-confirmed') {
-    lines.push('Romance: not allowed. Keep things friendly and non-romantic.');
+    lines.push('Romance: not allowed. Keep the scene non-romantic.');
   } else {
-    lines.push('Romance: off. Keep things warm and friendly.');
+    lines.push('Romance: off. Keep the scene non-romantic.');
   }
   return lines.join('\n');
 }

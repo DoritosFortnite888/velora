@@ -5,7 +5,8 @@
 // messages rather than hand-written chat markers.
 import { LIMITS, LENGTHS } from './config.js';
 import { roleplayRules } from './safety.js';
-import { NATURAL_STYLE, CONTINUITY_RULES, contentMode, personaSection } from './persona.js';
+import { NATURAL_STYLE, CONTINUITY_RULES, contentMode, personaSection, identityLine, sceneRules } from './persona.js';
+import { turnSection } from './reactions.js';
 import { selectMemoryLines } from './memory.js';
 
 // English text is about 4 characters per token. Counting 3 leaves a safety margin.
@@ -36,7 +37,7 @@ function characterBudget(contextTokens, replyTokens) {
 // lengthGuide is the instruction for how long this reply should be (see persona.js replyLength).
 export function buildChatMessages({ character, history, memories, chatSummary, contextTokens, replyTokens, lengthGuide }) {
   const queryText = history.slice(-QUERY_MESSAGES).map((m) => m.text).join(' ');
-  const system = systemPrompt(character, memories, lengthGuide ?? LENGTHS.short.guide, queryText, chatSummary);
+  const system = systemPrompt(character, memories, lengthGuide ?? LENGTHS.short.guide, history, chatSummary);
   const postHistory = clip(clean(character.postHistoryInstructions), 300);
 
   let remaining = characterBudget(contextTokens, replyTokens) - system.length - postHistory.length;
@@ -142,12 +143,17 @@ export function buildRollingSummaryMessages({ character, previous = '', transcri
   ];
 }
 
-function systemPrompt(character, memories, lengthGuide, queryText, chatSummary) {
+// The system prompt, in a fixed order. The character comes first, the scene and style next, the
+// direction for this reply after that, and the safety rules last, so they are the final thing read.
+function systemPrompt(character, memories, lengthGuide, history, chatSummary) {
   const sections = [];
   const mode = contentMode(character);
+  const queryText = history.slice(-QUERY_MESSAGES).map((m) => m.text).join(' ');
+
+  sections.push(identityLine(character.name));
 
   const custom = clip(clean(character.systemPrompt), 700);
-  sections.push(custom || `You are roleplaying as ${character.name}. Stay in character at all times.`);
+  if (custom) sections.push(custom);
 
   const tagline = clip(clean(character.tagline), 120);
   if (tagline) sections.push(`Who ${character.name} is: ${tagline}.`);
@@ -188,9 +194,12 @@ function systemPrompt(character, memories, lengthGuide, queryText, chatSummary) 
     );
   }
 
+  sections.push(sceneRules(character.name));
   sections.push(CONTINUITY_RULES);
   sections.push(NATURAL_STYLE);
   sections.push(personaSection(character, mode));
+  // What the user's latest message means in the scene, how the character reacts, and what to avoid.
+  sections.push(turnSection(character, history));
   sections.push(`Length of this reply: ${lengthGuide}`);
 
   // Safety rules come last and are never removed.
