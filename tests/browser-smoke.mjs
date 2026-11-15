@@ -427,6 +427,21 @@ const iosDisabled = await iosPage.isDisabled('[data-download="llama-3.2-3b"]').c
 check('an iPhone is refused the 3B model before any download', iosBody.includes('too large for an iPhone Safari tab') && iosDisabled);
 await iosContext.close();
 
+// 22. Automatic choice and the investigated OpenAI models (no network needed for these checks)
+await goto('#/models');
+const modelsText = await page.textContent('body');
+check('the Models page explains automatic choice', modelsText.includes('Automatic choice'));
+check('the Models page lists GPT-OSS as not offered, with a reason', modelsText.includes('GPT-OSS 20B') && modelsText.includes('Not offered'));
+// Picking a model by hand turns automatic choice off, and switching back on keeps the downloaded model
+await page.click('[data-use="llama-3.2-1b"]').catch(() => {});
+await page.waitForTimeout(400);
+check('choosing a model by hand turns automatic choice off', (await page.textContent('body')).includes('Automatic choice is off'));
+await page.click('#auto-on').catch(() => {});
+await page.waitForTimeout(400);
+const autoBody = await page.textContent('body');
+check('turning automatic choice back on uses the downloaded model', autoBody.includes('Automatic choice is on'));
+check('the downloaded 0.5B model is the one selected again', (await page.textContent('[data-model="qwen2.5-0.5b"]')).includes('Selected'));
+
 check('no uncaught JavaScript errors', errors.length === 0, errors.slice(0, 3).join(' | ') || 'none');
 
 await browser.close();

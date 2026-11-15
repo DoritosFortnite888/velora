@@ -33,6 +33,29 @@ The stub AI library in the browser test returns fake replies. It proves Velora's
 - **Action formatting depends on the model using asterisks.** Velora shows *asterisk actions* in italics. If a model writes actions some other way, they appear as normal text.
 - **Velora cannot stop a model from narrating your actions.** Its style guide asks the model not to, but it may still do it.
 
+## Version 1.5.0: OpenAI GPT investigation and automatic choice
+
+**Read this first.** This environment had no internet access. No model was downloaded, no model list was read, and no runtime was run, so none of the model claims below are measured. The sizes are arithmetic, and the rest comes from published facts recalled from memory. Those are marked in `docs/OPENAI_GPT_INVESTIGATION.md`.
+
+- **No OpenAI GPT model can run on iPhone 14 in Velora.** GPT-OSS 20B needs about 10.6 GB for its weights alone, against a 1.2 GB iPhone budget. This is a firm conclusion from arithmetic, not a test.
+- **The GPT-2 family is genuine but not usable for roleplay.** It was not trained to hold a character, and no runtime Velora uses has a verified build.
+- **Automatic choice is tested in logic and in a stub browser,** not on a phone. It depends on the device checks, which cannot read iPhone RAM.
+- **The `quality` ordering is an estimate**, based on model size and general reports. It is not a measurement of conversation quality.
+- **The iPhone budget (1,200 MB) is an estimate.** A Safari tab's real limit is not known.
+
+### What was tested for version 1.5.0
+
+| Area | How it was checked |
+|---|---|
+| Size arithmetic | `npm test` (automatic) |
+| Automatic choice: picks only downloaded models, iPhone and computer rules, skip reasons | `npm test` (automatic) |
+| Stored choices: manual stays manual, fresh installs are automatic | `npm test` (automatic) |
+| No GPT-labelled model is offered; investigated models are not downloadable | `npm test` (automatic) |
+| Automatic-choice panel, switching back on, Selected tag | `tests/browser-smoke.mjs` (headless Chromium, stub model) |
+| **GPT-OSS 20B download, load or reply on any device** | **Not possible here. Not tested.** |
+| **Real model: Llama 3.2 1B or Qwen2.5 0.5B on iPhone 14** | **Not tested.** |
+| **Offline use after a download, on iPhone 14** | **Not tested.** |
+
 ## Version 1.4.0: speed, reliability and model limits
 
 **Read this first.** Nothing in this version has been run on a phone, and this environment had no network, so the model could not be downloaded or benchmarked here. The only real browser runs used a stub model. What was checked is listed below. For real numbers, use the speed test on Profile, and tell us what you see.

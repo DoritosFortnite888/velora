@@ -22,6 +22,7 @@ Velora is a free website that works like an app. You chat with AI characters, an
 - **Offline support**: the website is saved after one online visit. The model is downloaded once and then kept on your device.
 - **Backups**: export and import everything from the Profile page. The AI models page is linked from there.
 - **Speed**: Profile shows how fast replies have been on this device this session, and has a speed test. Nothing is sent anywhere.
+- **Automatic model choice**: by default Velora uses the smartest model already downloaded that fits the device. It never downloads a model on its own. See the Models page, and docs/OPENAI_GPT_INVESTIGATION.md for why no OpenAI GPT model is offered for iPhone 14.
 
 ## Rules that always apply
 

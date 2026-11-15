@@ -30,6 +30,9 @@ import { enqueue, idle, pendingJobs } from '../js/ai/queue.js';
 import { startReply, markChunk, finishReply, summarize, resetMetrics, recentReplies, getSpeedTest, recordSpeedTest } from '../js/ai/metrics.js';
 import { modelBlockReason } from '../js/core/model-policy.js';
 import { TURN_MARK } from '../js/core/prompt.js';
+import { weightsMB } from '../js/core/sizing.js';
+import { chooseSmartest, eligibility, resolveMode } from '../js/core/model-select.js';
+import { INVESTIGATED_MODELS, IOS_MODEL_BUDGET_MB } from '../js/core/config.js';
 
 let passed = 0;
 let failed = 0;
@@ -1115,6 +1118,77 @@ test('the changing parts come after the stable part, and the safety rules are st
   assert.ok(system.indexOf(TURN_MARK) < system.indexOf('Length of this reply:'));
   assert.ok(system.indexOf('Length of this reply:') < system.indexOf('Roleplay rules:'));
   assert.ok(system.endsWith(roleplayRules('adult')));
+});
+
+console.log('\nAutomatic choice and the OpenAI GPT investigation');
+
+const IOS = { ok: true, isIOS: true, problems: [] };
+const DESKTOP = { ok: true, isIOS: false, problems: [] };
+const ALL = MODELS.map((m) => m.id);
+const byId = (id) => MODELS.find((m) => m.id === id);
+
+test('size estimate is arithmetic: parameters times bits per weight, in MB', () => {
+  assert.equal(weightsMB(1, 8), 954, '1 billion parameters at 8 bits is about 954 MB');
+  const gptOss = weightsMB(21, 4.25);
+  assert.ok(gptOss > 10000 && gptOss < 11000, `GPT-OSS 20B weights: ${gptOss} MB`);
+  assert.ok(gptOss > IOS_MODEL_BUDGET_MB * 5, 'far above the iPhone budget');
+});
+
+test('automatic choice never picks a model that is not downloaded, so it never starts a download', () => {
+  assert.equal(chooseSmartest(MODELS, { report: DESKTOP, downloadedIds: [] }).spec, null);
+  const only = chooseSmartest(MODELS, { report: DESKTOP, downloadedIds: ['qwen2.5-0.5b'] });
+  assert.equal(only.spec.id, 'qwen2.5-0.5b');
+});
+
+test('on an iPhone, automatic choice picks the smartest downloaded model that fits, and says why it skipped the rest', () => {
+  const result = chooseSmartest(MODELS, { report: IOS, downloadedIds: ALL });
+  assert.equal(result.spec.id, 'llama-3.2-1b', 'the 1.5B model has a known iPhone problem and the 3B model is too large');
+  const skipped = Object.fromEntries(result.skipped.map((k) => [k.id, k.reason]));
+  assert.ok(skipped['qwen2.5-1.5b'].includes('known load problem on iPhone'));
+  assert.ok(skipped['llama-3.2-3b'].includes('iPhone Safari tab'));
+  assert.equal(skipped['llama-3.2-1b'], undefined, 'the chosen model is not listed as skipped');
+});
+
+test('on a computer, automatic choice picks the highest-quality downloaded model', () => {
+  const result = chooseSmartest(MODELS, { report: DESKTOP, downloadedIds: ['qwen2.5-0.5b', 'llama-3.2-1b', 'qwen2.5-1.5b'] });
+  assert.equal(result.spec.id, 'qwen2.5-1.5b');
+  assert.equal(result.skipped.length, 0);
+});
+
+test('a device that fails the basic checks gets no automatic model', () => {
+  assert.equal(chooseSmartest(MODELS, { report: { ok: false, isIOS: false }, downloadedIds: ALL }).spec, null);
+  assert.equal(eligibility(byId('llama-3.2-1b'), { report: { ok: false }, downloaded: true }).ok, false);
+});
+
+test('stored choices are respected: a manual choice from an older install stays manual, a fresh install is automatic', () => {
+  assert.equal(resolveMode(undefined, 'llama-3.2-1b'), 'manual', 'an older install that picked a model keeps it');
+  assert.equal(resolveMode(undefined, undefined), 'auto', 'a fresh install starts in automatic choice');
+  assert.equal(resolveMode('manual', undefined), 'manual');
+  assert.equal(resolveMode('auto', 'llama-3.2-1b'), 'auto', 'a stored automatic choice wins');
+  assert.equal(resolveMode('garbage', undefined), 'auto');
+});
+
+test('no model labelled GPT or OpenAI is offered for download', () => {
+  for (const m of MODELS) {
+    assert.ok(!/gpt|openai/i.test(`${m.id} ${m.displayName} ${m.webllmIdF16}`), `offered model looks like GPT: ${m.displayName}`);
+  }
+});
+
+test('every investigated OpenAI model is listed as not offered, with a reason, and none is downloadable', () => {
+  const ids = INVESTIGATED_MODELS.map((m) => m.id);
+  assert.ok(ids.includes('gpt-oss-20b') && ids.includes('gpt2-xl'));
+  for (const m of INVESTIGATED_MODELS) {
+    assert.ok(m.status.startsWith('Not offered'), m.id);
+    assert.ok(m.reason.length > 40, m.id);
+    assert.equal(MODELS.some((x) => x.id === m.id || x.webllmIdF16 === m.id), false, `${m.id} must not be in MODELS`);
+  }
+  const gptOss = INVESTIGATED_MODELS.find((m) => m.id === 'gpt-oss-20b');
+  assert.ok(weightsMB(gptOss.paramsB, gptOss.bitsPerWeight) > IOS_MODEL_BUDGET_MB, 'GPT-OSS 20B does not fit the iPhone budget');
+});
+
+test('the investigated list is never used to pick a model', () => {
+  const result = chooseSmartest(MODELS, { report: DESKTOP, downloadedIds: ['gpt-oss-20b', 'gpt2-xl'] });
+  assert.equal(result.spec, null);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

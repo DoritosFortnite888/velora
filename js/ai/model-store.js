@@ -3,6 +3,7 @@
 // every download starts from a tap on the Models page, after the user has confirmed the size.
 import * as db from '../data/db.js';
 import { MODELS, DEFAULT_MODEL_ID } from '../core/config.js';
+import { chooseSmartest, resolveMode } from '../core/model-select.js';
 import {
   loadEngine,
   unloadEngine,
@@ -24,9 +25,40 @@ export function specById(id) {
   return MODELS.find((m) => m.id === id) ?? MODELS[0];
 }
 
+// The model Velora uses. In 'auto' mode this is the smartest downloaded model that fits the device, and if
+// none fits, the stored choice (as before). Automatic choice never downloads anything.
 export async function selectedSpec() {
+  if ((await getModelMode()) === 'auto') {
+    const { spec } = await autoSelection();
+    if (spec) return spec;
+  }
   const id = await db.getSetting('selectedModel');
   return specById(id ?? DEFAULT_MODEL_ID);
+}
+
+// 'auto' or 'manual'. An install that picked a model by hand before this version stays 'manual'.
+export async function getModelMode() {
+  return resolveMode(await db.getSetting('modelMode'), await db.getSetting('selectedModel'));
+}
+
+export async function setModelMode(mode) {
+  await db.setSetting('modelMode', mode === 'manual' ? 'manual' : 'auto');
+}
+
+// The smartest downloaded model that fits, and the downloaded models that were skipped with the reason.
+export async function autoSelection() {
+  const report = await getDeviceReport();
+  const downloadedIds = [];
+  for (const spec of MODELS) {
+    if (await isDownloaded(spec)) downloadedIds.push(spec.id);
+  }
+  return chooseSmartest(MODELS, { report, downloadedIds });
+}
+
+// Turns automatic choice back on, and returns the model it now uses.
+export async function useAutomaticModel() {
+  await setModelMode('auto');
+  return selectedSpec();
 }
 
 // In-memory download state. Only one download can run at a time.
@@ -44,6 +76,7 @@ export async function chooseModel(id) {
   const spec = MODELS.find((m) => m.id === id);
   if (!spec) throw new Error('That model is not available in this version of Velora.');
   await db.setSetting('selectedModel', spec.id);
+  await setModelMode('manual');
   const loaded = currentModelId();
   if (loaded && loaded !== spec.webllmIdF16 && loaded !== spec.webllmIdF32) {
     await unloadEngine();

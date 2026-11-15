@@ -1,7 +1,7 @@
 // Velora settings. Change values here; the rest of the app reads them from this file.
 
 export const APP_NAME = 'Velora';
-export const APP_VERSION = '1.4.0';
+export const APP_VERSION = '1.5.0';
 
 // The on-device AI library (WebLLM). It is loaded from a public CDN at this exact version,
 // so an update cannot change behaviour without you noticing. If the library stops loading,
@@ -21,6 +21,7 @@ export const WEBLLM_URL = `https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@${WEBLLM
 export const MODELS = [
   {
     id: 'qwen2.5-0.5b',
+    quality: 2,                 // ordering estimate, not measured
     displayName: 'Qwen2.5 0.5B Instruct',
     tier: 'Fallback',
     summary: 'Small and quick. The safest choice for an older phone, and the default so existing installs keep working. Replies are simple, and it often drifts from the scene or forgets earlier details.',
@@ -36,6 +37,7 @@ export const MODELS = [
   },
   {
     id: 'llama-3.2-1b',
+    quality: 3,                 // ordering estimate, not measured
     displayName: 'Llama 3.2 1B Instruct',
     tier: 'Recommended for iPhone 14',
     summary: 'The best balance this project found for an iPhone 14. It follows a character and the recent chat better than the 0.5B model, and its WebLLM memory figure is the lowest of the larger models. It has not been run on an iPhone 14 by this project yet.',
@@ -53,6 +55,8 @@ export const MODELS = [
   },
   {
     id: 'qwen2.5-1.5b',
+    quality: 4,                 // ordering estimate, not measured
+    knownIssue: 'One third-party iPhone report found it failed to load after downloading.',
     displayName: 'Qwen2.5 1.5B Instruct',
     tier: 'Larger, may not run on iPhone',
     summary: 'Larger, so it can follow the conversation more closely. It needs more memory than the 1B model. One third-party iPhone report found it failed to load after downloading.',
@@ -69,6 +73,7 @@ export const MODELS = [
   },
   {
     id: 'llama-3.2-3b',
+    quality: 5,                 // ordering estimate, not measured
     displayName: 'Llama 3.2 3B Instruct',
     tier: 'Strongest, experimental',
     summary: 'The strongest model in this list for natural, long roleplay. Its WebLLM memory figure is about 2.3 GB, which is more than an iPhone 14 Safari tab is likely to allow. Expect failures, page reloads, or a very slow reply. Use the 1B model on an iPhone 14.',
@@ -218,3 +223,48 @@ export const DEVICE = {
   minDeviceMemoryGB: 2,       // only checked where the browser reports RAM (Safari does not)
   storageNeededMB: 800,       // rough space the model needs; only a warning
 };
+
+// Memory a model may use on an iPhone, in MB. An estimate: iOS does not report RAM to web pages, and
+// a Safari tab is limited by iOS. Automatic choice never picks a model above this on iPhone.
+export const IOS_MODEL_BUDGET_MB = 1200;
+
+// How the model is chosen. 'auto' picks the smartest downloaded model that fits the device. 'manual' keeps
+// the model the user picked. An install that has never picked a model starts in 'auto'.
+export const DEFAULT_MODEL_MODE = 'auto';
+
+// Models looked at and NOT offered. They are deliberately not in MODELS, so Velora cannot download them.
+// Each entry says why. Parameter counts and bit widths are used only to compute the size estimate.
+export const INVESTIGATED_MODELS = [
+  {
+    id: 'gpt-oss-20b',
+    displayName: 'GPT-OSS 20B (OpenAI, open weights)',
+    paramsB: 21,
+    bitsPerWeight: 4.25,
+    status: 'Not offered: too large for iPhone 14',
+    reason: 'An OpenAI GPT-family open-weight model. Its weights alone are far larger than the memory an iPhone 14 can give a web page (6 GB of RAM in total). It also needs its own response format and a runtime that is not part of Velora.',
+  },
+  {
+    id: 'gpt-oss-120b',
+    displayName: 'GPT-OSS 120B (OpenAI, open weights)',
+    paramsB: 117,
+    bitsPerWeight: 4.25,
+    status: 'Not offered: far too large',
+    reason: 'The larger OpenAI GPT-family open-weight model. It needs tens of gigabytes of memory, which is not possible on a phone.',
+  },
+  {
+    id: 'gpt-oss-safeguard-20b',
+    displayName: 'GPT-OSS-Safeguard 20B (OpenAI, open weights)',
+    paramsB: 21,
+    bitsPerWeight: 4.25,
+    status: 'Not offered: a safety classifier, and too large',
+    reason: 'An OpenAI GPT-family model built for classifying content against a safety policy. It is not a chat model for characters, and it is the same size as GPT-OSS 20B.',
+  },
+  {
+    id: 'gpt2-xl',
+    displayName: 'GPT-2 XL, 1.5B (OpenAI, open weights)',
+    paramsB: 1.5,
+    bitsPerWeight: 4.5,
+    status: 'Not offered: too weak for roleplay, and no compatible runtime in Velora',
+    reason: 'A genuine small OpenAI GPT open-weight model from 2019. It was not trained to follow instructions or hold a character, so its replies are not usable for roleplay, and Velora has no runtime that loads it.',
+  },
+];

@@ -1,7 +1,8 @@
 // The model selection screen. Lists every model with its size, memory estimate, intelligence and
 // speed, and lets the user download (after confirming), cancel, delete, or switch between models.
 // Nothing here downloads a model without a tap and a confirmation.
-import { MODELS, DEVICE } from '../../core/config.js';
+import { MODELS, DEVICE, INVESTIGATED_MODELS } from '../../core/config.js';
+import { weightsMB } from '../../core/sizing.js';
 import { formatMB } from '../../core/util.js';
 import { getDeviceReport } from '../../ai/device.js';
 import { isGenerating } from '../../ai/chat.js';
@@ -9,6 +10,9 @@ import { modelBlockReason } from '../../core/model-policy.js';
 import {
   selectedSpec,
   chooseModel,
+  autoSelection,
+  getModelMode,
+  useAutomaticModel,
   downloadModel,
   cancelDownload,
   removeModel,
@@ -89,9 +93,54 @@ function modelCardHTML(spec, { selected, status, progress, report }) {
     </section>`;
 }
 
+// The automatic-choice panel: what is used now, what was skipped and why, and how to turn it on.
+function autoPanelHTML(mode, auto, selected) {
+  const names = (id) => MODELS.find((m) => m.id === id)?.displayName ?? id;
+  const skipped = auto.skipped.length
+    ? `<ul class="rules-list">${auto.skipped.map((k) => `<li>${esc(names(k.id))}: ${esc(k.reason)}</li>`).join('')}</ul>`
+    : '';
+  const choice = auto.spec
+    ? `<p class="muted small">Smartest fit for this device right now: <strong>${esc(auto.spec.displayName)}</strong>.</p>`
+    : '<p class="muted small">No downloaded model fits this device yet. Download one below to use automatic choice.</p>';
+  const status = mode === 'auto'
+    ? 'Automatic choice is on. Velora uses the smartest downloaded model that fits this device.'
+    : `Automatic choice is off. You chose ${selected.displayName} yourself.`;
+  return `
+    <section class="panel">
+      <h2>Automatic choice</h2>
+      <p class="muted">${esc(status)}</p>
+      ${choice}
+      ${skipped}
+      <p class="muted small">Automatic choice only looks at models already on this device. It never starts a download.</p>
+      <div class="btn-row">
+        <button class="btn btn--ghost" type="button" id="auto-on"${mode === 'auto' ? ' disabled' : ''}>Use automatic choice</button>
+      </div>
+    </section>`;
+}
+
+// Models looked at and not offered, with the reason and the size estimate from their parameters.
+function investigatedHTML() {
+  const rows = INVESTIGATED_MODELS.map((m) => {
+    const size = m.paramsB ? `About ${formatMB(weightsMB(m.paramsB, m.bitsPerWeight))} of weights (estimate, before runtime memory).` : '';
+    return `
+      <div class="info-list">
+        <div class="info-row"><span>${esc(m.displayName)}</span><strong>${esc(m.status)}</strong></div>
+        <p class="note">${esc(m.reason)} ${esc(size)}</p>
+      </div>`;
+  }).join('');
+  return `
+    <section class="panel">
+      <h2>Investigated, not offered</h2>
+      <p class="muted small">These were looked at and are not offered, so they cannot be downloaded from Velora. The reason is given for each.</p>
+      ${rows}
+    </section>`;
+}
+
 export async function renderModels() {
   const report = await getDeviceReport();
   const selected = await selectedSpec();
+  const mode = await getModelMode();
+  const auto = await autoSelection();
   const interrupted = await interruptedLoad();
   const progress = downloadProgress();
 
@@ -119,11 +168,13 @@ export async function renderModels() {
     <div class="stack">
       ${deviceNotice}
       ${interruptedNotice}
+      ${autoPanelHTML(mode, auto, selected)}
       <section class="panel">
         <p class="muted small">Choosing a model does not download it. Each download starts only when you tap Download and confirm the size. One download runs at a time. Files stay on this device, so your chats and characters are not affected by switching or deleting a model.</p>
         <p class="muted small">Sizes and memory figures are estimates. Velora has not measured them on an iPhone 14.</p>
       </section>
       ${cards.join('')}
+      ${investigatedHTML()}
       <section class="panel">
         <p class="note">If a model fails to load, switch back to Qwen2.5 0.5B. It is the smallest and the most likely to run.</p>
         <p class="note">Cancelling stops Velora waiting for a download. The library cannot stop a file that is already arriving, so it may finish in the background. Files already saved are reused next time.</p>
@@ -140,6 +191,16 @@ export async function renderModels() {
           if (busy) button.disabled = true;
         });
       };
+
+      root.querySelector('#auto-on')?.addEventListener('click', async () => {
+        if (isGenerating()) {
+          toast('Velora is still writing a reply. Wait for it to finish, or tap stop, before switching models.', 5000);
+          return;
+        }
+        const spec = await useAutomaticModel();
+        toast(`Automatic choice is on. Using ${spec.displayName}.`, 4500);
+        rerender();
+      });
 
       root.querySelector('#dismiss-interrupted')?.addEventListener('click', async () => {
         await clearInterruptedLoad();

@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.5.0
+
+OpenAI GPT open-weight investigation, and automatic choice of the smartest model that fits. Nothing was rebuilt. Characters, chats, memories and the database are unchanged. The only stored data added is two settings (`modelMode`), and the existing `selectedModel` setting is kept.
+
+**Important:** no OpenAI GPT model can be run on an iPhone 14 in Velora, and the investigation is in `docs/OPENAI_GPT_INVESTIGATION.md`. This environment had no internet access, so no model was downloaded and no runtime was tested. The arithmetic was tested.
+
+### Investigation
+- **GPT-OSS 20B: not offered.** Its weights alone come to about 10,640 MB at 4.25 bits per weight. Velora's iPhone model budget is 1,200 MB, and an iPhone 14 has 6 GB of RAM in total. It also needs its own response format.
+- **GPT-OSS 120B and GPT-OSS-Safeguard 20B: not offered.** Far too large, and the safeguard model is a classifier rather than a chat model.
+- **GPT-2 family (genuine OpenAI GPT open weights, 2019): not offered.** The 1.5B model fits the budget, but it was not trained to hold a character, and no runtime Velora uses has a verified build of it.
+- **Recommendation:** Llama 3.2 1B, with Qwen2.5 0.5B as the fallback. Both are untested on an iPhone 14.
+- The investigated models are listed on the Models page with the reason for each. They are not in the download list, so they cannot be downloaded from Velora.
+
+### Automatic choice
+- A new **Automatic choice** section on the Models page uses the smartest model that is already downloaded and fits the device. It explains which downloaded models were skipped and why. It never starts a download.
+- On an iPhone, Qwen2.5 1.5B is skipped because one third-party report found it failed to load, and Llama 3.2 3B is skipped because it is too large for a Safari tab.
+- A fresh install starts in automatic choice. An install that already picked a model by hand stays manual, so an earlier choice is not overridden. Choosing a model by hand turns automatic choice off, and **Use automatic choice** turns it back on. (`js/core/model-select.js`, `js/ai/model-store.js`)
+- The `quality` values are ordering estimates from model size and general reports. They are not measurements.
+
+### Sizing
+- `js/core/sizing.js` computes the weight size from parameters and bits per weight. These are lower bounds, because runtime buffers and the attention cache come on top.
+
+### Housekeeping
+- Version 1.5.0. The service worker cache is renamed (`velora-v8`).
+- Tests: 143 logic tests (was 134). Browser smoke test: 60 checks (was 55), run in headless Chromium with the stub model.
+
 ## 1.4.0
 
 Speed, reliability and model limits. Nothing was rebuilt. Characters, chats, memories, settings and the database are unchanged. Model files already downloaded should be kept: the update code only deletes caches whose names start with `velora-`, and the library's model cache has a different name. This was checked by reading the code, not on a device.
