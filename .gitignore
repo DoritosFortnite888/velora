@@ -1,0 +1,13 @@
+# AI model files must never be committed. They are downloaded in the browser instead.
+*.gguf
+*.bin
+*.safetensors
+*.onnx
+models/
+node_modules/
+
+# Local editor and OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

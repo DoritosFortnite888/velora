@@ -1,0 +1,10 @@
+{
+  "name": "velora",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Velora: a local, offline AI character chat Progressive Web App.",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/run-tests.mjs && node tests/check-static.mjs"
+  }
+}
