@@ -92,27 +92,37 @@ export async function unloadEngine() {
 
 // Streams a reply. onToken receives each new piece of text. Resolves with the full text.
 // If the signal is aborted, generation stops and the text so far is returned.
-export async function generate(messages, { maxTokens, temperature = 0.8, topP = 0.95, signal, onToken } = {}) {
+export async function generate(messages, {
+  maxTokens,
+  temperature = 0.8,
+  topP = 0.95,
+  frequencyPenalty = 0,
+  presencePenalty = 0,
+  stop,
+  signal,
+  onToken,
+} = {}) {
   if (!engine) throw new EngineError('The model is not loaded yet.');
 
-  const stop = () => {
+  const stopGeneration = () => {
     try {
       engine.interruptGenerate();
     } catch {
       // nothing to stop
     }
   };
-  signal?.addEventListener('abort', stop, { once: true });
+  signal?.addEventListener('abort', stopGeneration, { once: true });
+
+  // Penalties discourage the repeated phrases small models fall into. Stop sequences stop the model
+  // from writing the user's lines. Only set what is asked for, so older settings stay unchanged.
+  const request = { messages, stream: true, max_tokens: maxTokens, temperature, top_p: topP };
+  if (frequencyPenalty) request.frequency_penalty = frequencyPenalty;
+  if (presencePenalty) request.presence_penalty = presencePenalty;
+  if (stop?.length) request.stop = stop;
 
   let full = '';
   try {
-    const stream = await engine.chat.completions.create({
-      messages,
-      stream: true,
-      max_tokens: maxTokens,
-      temperature,
-      top_p: topP,
-    });
+    const stream = await engine.chat.completions.create(request);
     for await (const chunk of stream) {
       if (signal?.aborted) break;
       const piece = chunk.choices?.[0]?.delta?.content ?? '';
@@ -125,7 +135,7 @@ export async function generate(messages, { maxTokens, temperature = 0.8, topP = 
     if (signal?.aborted) return full;
     throw new EngineError(explainGenerateError(err));
   } finally {
-    signal?.removeEventListener('abort', stop);
+    signal?.removeEventListener('abort', stopGeneration);
   }
   return full;
 }

@@ -2,6 +2,8 @@
 // Ported from the Swift ChatViewModel. UI code passes "listeners" and is told about every change.
 import * as db from '../data/db.js';
 import { LIMITS } from '../core/config.js';
+import { replyLength } from '../core/persona.js';
+import { cleanReply } from '../core/format.js';
 import { AGE_GATE, suggestsMinor } from '../core/safety.js';
 import { buildChatMessages, buildSummaryMessages } from '../core/prompt.js';
 import { newId, stamp } from '../core/util.js';
@@ -115,12 +117,15 @@ async function runReply({ conversation, character, context, listeners }) {
   try {
     const history = (await db.listMessages(conversation.id)).filter((m) => m.id !== placeholder.id);
     const memories = await db.listMemories(character.id);
+    const lastUser = [...history].reverse().find((m) => m.isFromUser)?.text ?? '';
+    const length = replyLength(character, lastUser);
     const messages = buildChatMessages({
       character,
       history,
       memories,
       contextTokens: context.spec.contextWindow,
-      replyTokens: LIMITS.replyTokens,
+      replyTokens: length.maxTokens,
+      lengthGuide: length.guide,
     });
 
     await loadEngine(context.spec, {
@@ -130,24 +135,27 @@ async function runReply({ conversation, character, context, listeners }) {
     listeners.onStatus?.('');
 
     const full = await generate(messages, {
-      maxTokens: LIMITS.replyTokens,
-      temperature: 0.8,
+      maxTokens: length.maxTokens,
+      temperature: 0.85,
       topP: 0.95,
+      frequencyPenalty: 0.4,
+      presencePenalty: 0.2,
+      stop: ['\nUser:', '\nuser:'],
       signal: controller.signal,
       onToken: (piece) => {
         streamed += piece;
-        listeners.onToken?.(placeholder.id, streamed);
+        listeners.onToken?.(placeholder.id, cleanReply(streamed, character.name));
         // Save the partial reply now and then, so a closed app does not lose it.
         const now = Date.now();
         if (now - lastSave > 1500) {
           lastSave = now;
-          placeholder.text = streamed;
+          placeholder.text = cleanReply(streamed, character.name);
           db.saveMessage(placeholder).catch(() => {});
         }
       },
     });
 
-    const finalText = full.trim();
+    const finalText = cleanReply(full, character.name);
     if (!finalText) {
       if (controller.signal.aborted) {
         await removePlaceholder(placeholder, listeners);
@@ -165,7 +173,7 @@ async function runReply({ conversation, character, context, listeners }) {
       await maybeSummarize({ conversation, character, spec: context.spec, signal: controller.signal });
     }
   } catch (err) {
-    const partial = streamed.trim();
+    const partial = cleanReply(streamed, character.name);
     if (partial) {
       placeholder.text = partial;
       await db.saveMessage(placeholder).catch(() => {});

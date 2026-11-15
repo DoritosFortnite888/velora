@@ -12,16 +12,30 @@ Velora is a free website that works like an app. You chat with AI characters, an
 - **Import character cards**: JSON (V1 and V2), PNG cards with embedded data, and pasted text.
 - **Chats**: streaming replies, stop, regenerate, history, and each chat saved on your device.
 - **Memories**: notes about you and your shared history. Velora also writes new notes after longer chats.
-- **Roleplay styles**: Balanced, Playful, Gentle, Dramatic or Direct, for each character.
+- **Natural roleplay**: characters speak casually, in short replies (1 to 4 sentences by default), react to what you say, and keep their character.
+- **Roleplay formatting**: actions like *smiles slightly* appear in a smaller italic serif, and dialogue stays normal text. Replies are escaped, so no HTML or script can run.
+- **Personality controls**: pick any of Shy, Confident, Playful, Flirty, Romantic, Sarcastic, Dominant or Gentle, add your own custom personality, and choose a narration style and reply length.
+- **Romance level**: a slider from Off to Intense. It only applies to confirmed adults with an age of 18 or more on record.
 - **Offline support**: the website is saved after one online visit. The model is downloaded once and then kept on your device.
 - **Backups**: export and import everything from the Profile page.
 
 ## Rules that always apply
 
-- Romance and flirting are allowed **only** with characters confirmed as 18 or older. You confirm this yourself on the character's profile page.
-- Characters whose text suggests someone under 18 (for example "16 years old", "sixteen years old" or "high school") are blocked. This is a cautious keyword check, so it can flag an adult. Edit the text to fix it.
-- Sexual content is never written. Intimate moments fade out.
+- Romance needs three things: the character is confirmed as an adult, an age of 18 or more is entered for them, and the romance level is above Off. If any is missing, romance stays off and the app says why.
+- Chat is blocked for characters whose text or age suggests someone under 18 (for example "16 years old", "sixteen years old", "high school", or an age entered below 18). This is a cautious keyword check, so it can flag an adult. Edit the text to fix it.
+- Confirmed adults can have flirting, romance, suggestive dialogue and mature relationship themes. Velora never writes sexually explicit content, and intimate moments fade out.
+- Consent comes first: the user's boundaries, pace and wish to stop always win.
 - The character says it is an AI if someone sincerely asks.
+- No AI model is unrestricted. Each model has its own training and limits. Velora sends these rules with every message, but a small model may still ignore them.
+
+## Roleplay settings
+
+Open a character's **Edit** page to set:
+
+- **Traits**: any of the eight traits, plus a custom personality field.
+- **Narration**: Balanced, Vivid or Minimal (how much the character describes their own actions).
+- **Reply length**: Short (the default), Medium or Detailed. Asking for detail in a message also gives a longer reply for that turn.
+- **Age and romance**: the character's age, and the romance level slider.
 
 ## Files in this project
 

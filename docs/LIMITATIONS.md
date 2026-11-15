@@ -13,12 +13,25 @@
 | Chat streaming, stop, regenerate, memory notes, persistence across reload | Tested in Chromium **with a stub AI library** | `tests/browser-smoke.mjs` |
 | Website opens offline after one online visit | Tested in Chromium (service worker) | `tests/browser-smoke.mjs` |
 | Clear message when the AI library cannot be downloaded | Tested in Chromium (offline sandbox) | `tests/browser-smoke.mjs` |
+| Roleplay prompts (style guide, traits, romance level, reply length) | Automatically tested | `npm test` and `tests/browser-smoke.mjs` |
+| Message rendering: actions, speech, HTML escaping, cleanup of replies | Automatically tested | `npm test` and `tests/browser-smoke.mjs` |
+| Migration of characters saved by v1.0 | Automatically tested | `npm test` |
 | **Real WebLLM model running in a browser** | **Not tested** | — |
 | **Real model on iPhone 14 with iOS 26 Safari** | **Not tested** | — |
 | **Offline AI on iPhone** | **Not tested** | Follow docs/IPHONE_INSTALL.md |
 | **Real model on Windows Chrome or Edge** | **Not tested** | — |
 
 The stub AI library in the browser test returns fake replies. It proves Velora's chat logic works, but it says nothing about how the real model behaves or how fast it runs.
+
+## Roleplay and adult content (v1.1)
+
+- **The rules are instructions, not guarantees.** Velora writes its rules into every prompt. A small model may still ignore them, drift from a character, or write something you did not want. Use **Regenerate**, edit the character, or stop the scene.
+- **Romance needs an adult and an age.** The character must be confirmed as 18 or older, with an age of 18 or more on record. An unclear or missing age keeps romance off.
+- **The keyword age check is cautious.** It can flag an adult, and it cannot verify anyone's age.
+- **Reply length is a budget, not a promise.** Short replies are limited by a token budget. A model may still write a sentence that is cut off, or run long.
+- **Stop sequences depend on the library.** Velora asks the model to stop before it writes the user's lines. Velora also removes leaked labels after the reply. Neither is guaranteed on every model.
+- **Action formatting depends on the model using asterisks.** Velora shows *asterisk actions* in italics. If a model writes actions some other way, they appear as normal text.
+- **Velora cannot stop a model from narrating your actions.** Its style guide asks the model not to, but it may still do it.
 
 ## Known limitations on iPhone (Safari)
 

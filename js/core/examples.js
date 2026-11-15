@@ -1,6 +1,7 @@
 // Fictional, adult example characters. Stored as Character Card V2 objects, the same format
 // the importer reads. Ported from the Swift ExampleCharacters file.
 import { parseObject, cardToCharacter } from './cards.js';
+import { FICTIONAL_AGES } from './migrate.js';
 
 const CARD_OBJECTS = [
   {
@@ -113,5 +114,7 @@ export function loadExampleCards() {
 
 // Converts an example card into a character record marked as a trusted adult.
 export function exampleToCharacter(card) {
-  return cardToCharacter(card, { trustedAdult: true });
+  const record = cardToCharacter(card, { trustedAdult: true });
+  record.statedAge = FICTIONAL_AGES[card.name] ?? null;
+  return record;
 }

@@ -605,3 +605,46 @@ body[data-route="chat"] .toast { bottom: calc(var(--safe-bottom) + 84px); }
 @media (min-width: 900px) {
   .view { padding-top: 32px; }
 }
+
+/* ---------- Roleplay messages (v1.1) ---------- */
+
+/* Dialogue is normal text. Actions are smaller and set in a readable italic serif. */
+.bubble p { margin: 0; }
+.bubble p + p { margin-top: 0.45em; }
+.bubble .speech { white-space: pre-wrap; }
+.bubble .action {
+  font-family: ui-serif, Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+  font-style: italic;
+  font-size: 0.88em;
+  line-height: 1.45;
+  color: #c9c3ff;
+}
+.msg--user .bubble .action { color: #ece9ff; }
+
+/* Multi-select trait chips */
+.trait-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.trait-grid input { position: absolute; opacity: 0; pointer-events: none; }
+.trait-grid label {
+  display: inline-flex; align-items: center;
+  padding: 8px 13px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); font-size: 0.9rem; cursor: pointer;
+  transition: all 0.2s ease; user-select: none;
+}
+.trait-grid input:checked + label { background: var(--grad-soft); color: var(--text); border-color: rgba(139, 123, 255, 0.55); }
+.trait-grid input:focus-visible + label { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+
+/* Romance slider */
+.slider-row { display: flex; align-items: center; gap: 12px; }
+.slider-row input[type="range"] { flex: 1; accent-color: #8b7bff; }
+.slider-row output { min-width: 84px; text-align: right; font-weight: 650; color: var(--accent-2); font-size: 0.92rem; }
+.field-help { color: var(--muted); font-size: 0.84rem; margin: 0; }
+
+/* Age confirmation row */
+.age-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+.age-row input { width: 96px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 16px; color: var(--text); }
+.age-row input:focus { outline: none; border-color: rgba(139, 123, 255, 0.6); box-shadow: 0 0 0 4px var(--accent-soft); }
+
+/* Shown on the Profile page: how the roleplay rules work */
+.rules-list { margin: 0; padding-left: 18px; color: var(--muted); font-size: 0.92rem; }
+.rules-list li { margin-bottom: 6px; }

@@ -71,6 +71,17 @@ export async function renderProfile() {
       </section>
 
       <section class="panel">
+        <div class="panel-head">${ICON.shield}<h2>Roleplay and adult content</h2></div>
+        <ul class="rules-list">
+          <li>Romance is only for characters confirmed as adults, with an age of 18 or more on record. Otherwise romance stays off.</li>
+          <li>Velora never writes sexually explicit content, and never involves anyone under 18 or anyone whose age is unclear.</li>
+          <li>The same rules are sent with every message, but a small model can still ignore them. Stay in control of the scene.</li>
+          <li>You can stop any reply, say stop, change the subject, or delete the chat at any time.</li>
+          <li>No AI model is unrestricted. Each model has its own training and limits, and Velora cannot change that.</li>
+        </ul>
+      </section>
+
+      <section class="panel">
         <div class="panel-head">${ICON.cloud}<h2>Storage and backup</h2></div>
         <p class="muted">Characters, chats and memories are stored in this browser on this device. Export a backup now and then, because Safari can clear website data.</p>
         <div class="btn-row">

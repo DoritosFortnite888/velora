@@ -2,6 +2,7 @@
 // first-run setup, and service worker registration for offline use of the website.
 import * as db from './data/db.js';
 import { starterCharacters } from './core/starters.js';
+import { upgradeCharacter } from './core/migrate.js';
 import { esc } from './ui/dom.js';
 import { renderDiscover } from './ui/views/discover.js';
 import { renderChats } from './ui/views/chats.js';
@@ -72,11 +73,20 @@ function registerServiceWorker() {
   });
 }
 
+// Brings characters saved by earlier versions up to date. Chats and memories are not changed.
+async function upgradeSavedCharacters() {
+  for (const character of await db.listCharacters()) {
+    const { record, changed } = upgradeCharacter(character);
+    if (changed) await db.saveCharacter(record);
+  }
+}
+
 async function boot() {
   registerServiceWorker();
   try {
     await db.openDB();
     await db.seedStartersIfEmpty(starterCharacters());
+    await upgradeSavedCharacters();
   } catch (err) {
     document.getElementById('view').innerHTML = `
       <section class="empty">

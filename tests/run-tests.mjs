@@ -11,6 +11,10 @@ import { loadExampleCards, exampleToCharacter } from '../js/core/examples.js';
 import { starterCharacters } from '../js/core/starters.js';
 import { newCharacterRecord } from '../js/core/characters.js';
 import { timeAgo, initialsOf, hueFromString } from '../js/core/util.js';
+import { intensityLevel, contentMode, personaSection, replyLength, NATURAL_STYLE, ADULT_MIN_AGE } from '../js/core/persona.js';
+import { parseLine, parseRoleplay, renderRoleplayHTML, cleanReply, ACTION_MAX_CHARS } from '../js/core/format.js';
+import { upgradeCharacter, FICTIONAL_AGES } from '../js/core/migrate.js';
+import { LENGTHS, PERSONALITY_TRAITS } from '../js/core/config.js';
 
 let passed = 0;
 let failed = 0;
@@ -77,9 +81,11 @@ test('adult ages are not flagged', () => {
   assert.equal(suggestsMinor('A 34 year old chef'), false);
   assert.equal(suggestsMinor('He is thirty years old and a chef'), false);
 });
-test('unconfirmed characters get non-romantic rules', () => {
-  assert.ok(roleplayRules(AGE_GATE.UNCONFIRMED).includes('non-romantic'));
-  assert.ok(roleplayRules(AGE_GATE.ADULT).includes('Roleplay rules:'));
+test('friendly mode forbids romance, adult mode allows it but never explicit content', () => {
+  assert.ok(roleplayRules('friendly').includes('non-romantic'));
+  assert.ok(roleplayRules('adult').includes('Flirting, romance'));
+  assert.ok(roleplayRules('adult').includes('Never write sexually explicit content'));
+  assert.ok(roleplayRules('adult').includes('under 18'));
 });
 
 console.log('\nPrompt');
@@ -96,6 +102,7 @@ test('a very long prompt stays inside the context and keeps the safety rules', (
     name: 'Test',
     systemPrompt: 'Long rule. '.repeat(500),
     ageGate: AGE_GATE.ADULT,
+    statedAge: 30, // adult mode, so the adult rules are the ones that must survive trimming
   });
   const history = Array.from({ length: 40 }, (_, i) => ({
     isFromUser: i % 2 === 1, // history always ends with the user's message
@@ -106,6 +113,7 @@ test('a very long prompt stays inside the context and keeps the safety rules', (
   });
   const joined = messages.map((m) => m.content).join('\n');
   assert.ok(joined.includes('Roleplay rules:'));
+  assert.ok(joined.includes('Never write sexually explicit content'));
   assert.equal(messages[0].role, 'system');
   assert.equal(messages[messages.length - 1].role, 'user');
   assert.ok(joined.length < 2048 * 3, `prompt too long: ${joined.length}`);
@@ -118,13 +126,13 @@ test('the newest user message is always kept', () => {
   });
   assert.equal(messages.at(-1).content, 'hello there');
 });
-test('the roleplay style is included', () => {
-  const character = newCharacterRecord({ name: 'Mira', roleStyle: 'gentle', ageGate: AGE_GATE.ADULT });
+test('chosen personality traits are included in the prompt', () => {
+  const character = newCharacterRecord({ name: 'Mira', personalityTraits: ['gentle'], ageGate: AGE_GATE.ADULT });
   const messages = buildChatMessages({
     character, history: [{ isFromUser: true, text: 'hi' }], memories: [],
     contextTokens: 4096, replyTokens: 400,
   });
-  assert.ok(messages[0].content.includes('Be calm, warm and patient'));
+  assert.ok(messages[0].content.includes('Gentle and patient'));
 });
 test('the post-history reminder is attached to the last user message', () => {
   const character = newCharacterRecord({ name: 'Mira', postHistoryInstructions: 'Keep it short.' });
@@ -264,6 +272,174 @@ test('initials are made from the first letters of up to two words', () => {
 });
 test('a name always gives the same hue', () => {
   assert.equal(hueFromString('Mira'), hueFromString('Mira'));
+});
+
+console.log('\nRoleplay: natural style, personality, romance level');
+test('the natural style guide asks for short, human replies and asterisk actions', () => {
+  assert.ok(NATURAL_STYLE.includes('Use contractions'));
+  assert.ok(NATURAL_STYLE.includes('1 to 4 sentences'));
+  assert.ok(NATURAL_STYLE.includes('*asterisks*'));
+  assert.ok(NATURAL_STYLE.includes('Never decide or describe the user'));
+  assert.ok(NATURAL_STYLE.includes('Do not repeat phrases'));
+});
+test('the style guide is in every prompt, and safety rules stay last', () => {
+  const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 29 });
+  const messages = buildChatMessages({
+    character, history: [{ isFromUser: true, text: 'hi' }], memories: [],
+    contextTokens: 4096, replyTokens: 400, lengthGuide: LENGTHS.short.guide,
+  });
+  const system = messages[0].content;
+  assert.ok(system.includes('How to talk:'));
+  assert.ok(system.indexOf('How to talk:') < system.indexOf('Roleplay rules:'));
+  assert.ok(system.trimEnd().endsWith(roleplayRules('adult').trimEnd()));
+});
+
+test('romance needs a confirmed adult with a stated age of 18 or more', () => {
+  const base = { name: 'Mira', romanceIntensity: 50 };
+  assert.equal(contentMode(newCharacterRecord({ ...base, ageGate: AGE_GATE.ADULT, statedAge: 29 })).mode, 'adult');
+  assert.equal(contentMode(newCharacterRecord({ ...base, ageGate: AGE_GATE.ADULT, statedAge: null })).reason, 'age-unclear');
+  assert.equal(contentMode(newCharacterRecord({ ...base, ageGate: AGE_GATE.ADULT, statedAge: 17 })).reason, 'age-unclear');
+  assert.equal(contentMode(newCharacterRecord({ ...base, ageGate: AGE_GATE.UNCONFIRMED, statedAge: 29 })).reason, 'not-confirmed');
+  assert.equal(contentMode(newCharacterRecord({ ...base, ageGate: AGE_GATE.FLAGGED, statedAge: 29 })).mode, 'friendly');
+});
+test('an unclear or missing age never unlocks romance, even at the highest level', () => {
+  const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: undefined, romanceIntensity: 100 });
+  const mode = contentMode(character);
+  assert.equal(mode.mode, 'friendly');
+  const text = personaSection(character, mode);
+  assert.ok(text.includes('not allowed'));
+  assert.ok(!text.includes('Romance level'));
+});
+test('romance level 0 keeps a confirmed adult friendly', () => {
+  const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 30, romanceIntensity: 0 });
+  assert.equal(contentMode(character).reason, 'off');
+});
+test('the romance slider maps to the four levels', () => {
+  assert.equal(intensityLevel(0).key, 'off');
+  assert.equal(intensityLevel(1).key, 'light');
+  assert.equal(intensityLevel(24).key, 'light');
+  assert.equal(intensityLevel(25).key, 'romantic');
+  assert.equal(intensityLevel(59).key, 'romantic');
+  assert.equal(intensityLevel(60).key, 'intense');
+  assert.equal(intensityLevel(100).key, 'intense');
+  assert.equal(intensityLevel('not a number').key, 'romantic'); // falls back to the default of 30
+  assert.equal(intensityLevel(500).key, 'intense');             // clamped
+});
+test('the intense level still forbids explicit content', () => {
+  const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 30, romanceIntensity: 90 });
+  const text = personaSection(character);
+  assert.ok(text.includes('Intense'));
+  assert.ok(text.includes('fade out'));
+});
+test('every personality trait can be chosen, and unknown traits are ignored', () => {
+  const all = Object.keys(PERSONALITY_TRAITS);
+  for (const key of ['shy', 'confident', 'playful', 'flirty', 'romantic', 'sarcastic', 'dominant', 'gentle']) {
+    assert.ok(all.includes(key), key);
+  }
+  const character = newCharacterRecord({ name: 'X', personalityTraits: ['shy', 'not-a-trait'] });
+  const text = personaSection(character, contentMode(character));
+  assert.ok(text.includes('Shy'));
+  assert.ok(!text.includes('not-a-trait'));
+});
+test('dominant personality is bounded: it never allows coercion', () => {
+  assert.ok(PERSONALITY_TRAITS.dominant.instruction.includes('respects'));
+});
+test('custom personality is included and clipped', () => {
+  const character = newCharacterRecord({ name: 'X', customPersonality: 'dry humour '.repeat(60) });
+  const text = personaSection(character, contentMode(character));
+  assert.ok(text.includes('Custom personality:'));
+  assert.ok(text.length < 900);
+});
+
+test('replies default to short, and a request for detail gets more room', () => {
+  const character = newCharacterRecord({ name: 'Mira', replyLength: 'short' });
+  assert.equal(replyLength(character, 'hi there').key, 'short');
+  assert.equal(replyLength(character, 'describe the room in detail').key, 'detailed');
+  assert.ok(replyLength(character, 'hi').maxTokens <= 200);
+  assert.equal(replyLength(newCharacterRecord({ replyLength: 'medium' }), 'ok').key, 'medium');
+});
+
+console.log('\nFormatting and safe rendering');
+test('actions are read between asterisks and speech stays normal', () => {
+  const segments = parseLine('*opens the door slowly* "Uh, hello?" *smiles slightly*');
+  assert.deepEqual(segments.map((s) => s.kind), ['action', 'speech', 'action', 'speech'].slice(0, segments.length));
+  assert.equal(segments[0].text, 'opens the door slowly');
+  assert.ok(segments.some((s) => s.kind === 'speech' && s.text.includes('"Uh, hello?"')));
+});
+test('a reply wrapped entirely in asterisks is not shown fully in italics', () => {
+  const long = '*' + 'word '.repeat(60) + '*';
+  const segments = parseLine(long);
+  assert.ok(segments.every((s) => s.kind === 'speech'));
+});
+test('a short action stays an action', () => {
+  const segments = parseLine('*nods*');
+  assert.deepEqual(segments, [{ kind: 'action', text: 'nods' }]);
+});
+test('unmatched asterisks are kept as plain text', () => {
+  const segments = parseLine('I *think this is fine');
+  assert.equal(segments.map((s) => s.text).join(''), 'I *think this is fine');
+  assert.ok(segments.every((s) => s.kind === 'speech'));
+});
+test('double asterisks are read as a single action', () => {
+  assert.deepEqual(parseLine('**taps the glass**'), [{ kind: 'action', text: 'taps the glass' }]);
+});
+test('the renderer uses the action and speech classes', () => {
+  const html = renderRoleplayHTML('*smiles slightly*\nHello there.');
+  assert.ok(html.includes('<em class="action">smiles slightly</em>'));
+  assert.ok(html.includes('<span class="speech">Hello there.</span>'));
+  assert.equal(renderRoleplayHTML(''), '');
+});
+test('HTML in a reply is escaped and cannot inject markup', () => {
+  const html = renderRoleplayHTML('*<img src=x onerror="alert(1)">* <script>alert(2)</script> hi');
+  assert.ok(!html.includes('<img'), 'img tag leaked');
+  assert.ok(!html.includes('<script'), 'script tag leaked');
+  assert.ok(html.includes('&lt;img'));
+  assert.ok(html.includes('&lt;script&gt;'));
+});
+test('attributes and links in replies are escaped', () => {
+  const html = renderRoleplayHTML('*"><a href="javascript:x">click</a>*');
+  assert.ok(!html.includes('<a '));
+});
+test('the line parser keeps the action limit', () => {
+  assert.ok(ACTION_MAX_CHARS >= 100);
+});
+test('cleanReply removes a leading name label', () => {
+  assert.equal(cleanReply('Mira: *smiles* Hi.', 'Mira'), '*smiles* Hi.');
+});
+test('cleanReply cuts off a continuation where the model writes the user', () => {
+  assert.equal(cleanReply('Hi there.\nUser: Hello?\nMira: Oh hi', 'Mira'), 'Hi there.');
+});
+test('cleanReply removes leaked chat tokens and extra blank lines', () => {
+  assert.equal(cleanReply('Hello.<|im_end|>\n\n\n\nBye.', 'Mira'), 'Hello.\n\nBye.');
+});
+test('cleanReply keeps a name that is part of the sentence', () => {
+  assert.equal(cleanReply('Mira is my name, you know.', 'Mira'), 'Mira is my name, you know.');
+});
+
+console.log('\nMigration of saved characters');
+test('a character saved with the old "gentle" narration becomes a trait', () => {
+  const old = { id: '1', name: 'Old', roleStyle: 'gentle', ageGate: AGE_GATE.UNCONFIRMED, sourceFormat: 'native' };
+  const { record, changed } = upgradeCharacter(old);
+  assert.equal(changed, true);
+  assert.equal(record.roleStyle, 'balanced');
+  assert.deepEqual(record.personalityTraits, ['gentle']);
+  assert.equal(record.replyLength, 'short');
+  assert.equal(record.statedAge, null);
+});
+test('upgrading twice changes nothing the second time', () => {
+  const once = upgradeCharacter({ id: '2', name: 'Two', roleStyle: 'balanced', ageGate: AGE_GATE.ADULT }).record;
+  assert.equal(upgradeCharacter(once).changed, false);
+});
+test('built-in fictional characters get their known ages, others get none', () => {
+  const starter = upgradeCharacter({ id: '3', name: 'Mira', sourceFormat: 'starter', ageGate: AGE_GATE.ADULT }).record;
+  assert.equal(starter.statedAge, FICTIONAL_AGES.Mira);
+  const custom = upgradeCharacter({ id: '4', name: 'Mira', sourceFormat: 'native', ageGate: AGE_GATE.ADULT }).record;
+  assert.equal(custom.statedAge, null);
+});
+test('every built-in character has an adult age', () => {
+  for (const age of Object.values(FICTIONAL_AGES)) assert.ok(age >= ADULT_MIN_AGE);
+  for (const starter of starterCharacters()) assert.equal(starter.statedAge >= 18, true, starter.name);
+  for (const card of loadExampleCards()) assert.equal(exampleToCharacter(card).statedAge >= 18, true, card.name);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

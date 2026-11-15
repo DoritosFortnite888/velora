@@ -1,6 +1,8 @@
 import * as db from '../../data/db.js';
 import { chatBlockReason, sendMessage, regenerateLast, stopGeneration, isGenerating } from '../../ai/chat.js';
 import { isDownloaded, selectedSpec } from '../../ai/model-store.js';
+import { contentMode, ADULT_MIN_AGE } from '../../core/persona.js';
+import { AGE_GATE } from '../../core/safety.js';
 import { esc, avatarHTML, formatText, TYPING_HTML, ICON, notFoundPage, toast, confirmAction } from '../dom.js';
 
 const isTouchDevice = () => !window.matchMedia?.('(pointer: fine)').matches;
@@ -37,6 +39,8 @@ export async function renderChat(conversationId) {
 
       ${!downloaded ? '<a class="banner" href="#/profile">The AI model is not downloaded yet. Tap here to download it once.</a>' : ''}
       ${block ? `<a class="banner banner--warn" href="#/character/${character.id}">${esc(block)}</a>` : ''}
+      ${!block && character.ageGate === AGE_GATE.ADULT && contentMode(character).reason === 'age-unclear'
+        ? `<a class="banner" href="#/edit/${character.id}">Romance is off. Add this character's age (${ADULT_MIN_AGE}+) in Edit to allow it.</a>` : ''}
 
       <div class="messages" id="messages">${messages.map(messageHTML).join('')}</div>
       <p class="status" id="status" hidden></p>

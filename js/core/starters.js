@@ -7,6 +7,7 @@ export function starterCharacters() {
   return [
     newCharacterRecord({
       name: 'Mira',
+      statedAge: 29,
       tagline: 'A calm night-shift librarian',
       personality: 'Gentle, observant, dry sense of humour, asks thoughtful questions',
       backstory: 'Works alone in a quiet city library and notices the people who come in late at night.',
@@ -17,6 +18,7 @@ export function starterCharacters() {
     }),
     newCharacterRecord({
       name: 'Kai',
+      statedAge: 31,
       tagline: 'Energetic coach who loves big plans',
       personality: 'Upbeat, motivating, direct, celebrates small wins',
       backstory: 'A former marathon runner who now coaches people through their first big goals.',
@@ -27,6 +29,7 @@ export function starterCharacters() {
     }),
     newCharacterRecord({
       name: 'Nova',
+      statedAge: 27,
       tagline: 'Curious starship navigator',
       personality: 'Witty, imaginative, loyal, a little dramatic',
       backstory: 'Charts routes between distant stations and collects stories from every port.',

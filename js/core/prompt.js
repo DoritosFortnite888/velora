@@ -3,8 +3,9 @@
 // text and old messages are trimmed. The roleplay safety rules are never trimmed.
 // The WebLLM library applies each model's own chat format, so this file returns role/content
 // messages rather than hand-written chat markers.
-import { LIMITS, ROLE_STYLES } from './config.js';
+import { LIMITS, LENGTHS } from './config.js';
 import { roleplayRules } from './safety.js';
+import { NATURAL_STYLE, contentMode, personaSection } from './persona.js';
 
 // English text is about 4 characters per token. Counting 3 leaves a safety margin.
 const CHARS_PER_TOKEN = 3;
@@ -29,8 +30,9 @@ function characterBudget(contextTokens, replyTokens) {
 }
 
 // Prompt for a normal reply. history must end with the user's latest message.
-export function buildChatMessages({ character, history, memories, contextTokens, replyTokens }) {
-  const system = systemPrompt(character, memories);
+// lengthGuide is the instruction for how long this reply should be (see persona.js replyLength).
+export function buildChatMessages({ character, history, memories, contextTokens, replyTokens, lengthGuide }) {
+  const system = systemPrompt(character, memories, lengthGuide ?? LENGTHS.short.guide);
   const postHistory = clip(clean(character.postHistoryInstructions), 300);
 
   let remaining = characterBudget(contextTokens, replyTokens) - system.length - postHistory.length;
@@ -87,8 +89,9 @@ export function buildSummaryMessages({ character, transcript, contextTokens, rep
   ];
 }
 
-function systemPrompt(character, memories) {
+function systemPrompt(character, memories, lengthGuide) {
   const sections = [];
+  const mode = contentMode(character);
 
   const custom = clip(clean(character.systemPrompt), 700);
   sections.push(custom || `You are roleplaying as ${character.name}. Stay in character at all times.`);
@@ -96,8 +99,8 @@ function systemPrompt(character, memories) {
   const tagline = clip(clean(character.tagline), 120);
   if (tagline) sections.push(`Who ${character.name} is: ${tagline}.`);
 
-  const personality = clip(clean(character.personality), 300);
-  if (personality) sections.push(`Personality: ${personality}`);
+  const notes = clip(clean(character.personality), 300);
+  if (notes) sections.push(`Personality notes: ${notes}`);
 
   const backstory = clip(clean(character.backstory), 400);
   if (backstory) sections.push(`Background: ${backstory}`);
@@ -127,10 +130,11 @@ function systemPrompt(character, memories) {
     );
   }
 
-  const style = ROLE_STYLES[character.roleStyle] ?? ROLE_STYLES.balanced;
-  sections.push(`Roleplay style: ${style.instruction}`);
+  sections.push(NATURAL_STYLE);
+  sections.push(personaSection(character, mode));
+  sections.push(`Length of this reply: ${lengthGuide}`);
 
   // Safety rules come last and are never removed.
-  sections.push(roleplayRules(character.ageGate));
+  sections.push(roleplayRules(mode.mode));
   return sections.join('\n\n');
 }

@@ -25,22 +25,25 @@ export function suggestsMinor(text) {
   return MINOR_PATTERNS.some((pattern) => pattern.test(text));
 }
 
-// Instructions added to every prompt, depending on the character's age gate.
-export function roleplayRules(gate) {
-  if (gate === AGE_GATE.ADULT) {
+// Roleplay rules added to every prompt. "adult" is used only for confirmed adults with a stated
+// age of 18 or more and romance switched on. Everything else uses "friendly".
+export function roleplayRules(mode) {
+  if (mode === 'adult') {
     return [
       'Roleplay rules:',
-      '- Stay in character. Reply in one to three short paragraphs with natural dialogue. Actions may be written in asterisks.',
-      '- Flirting, dating scenes and romance are allowed between adults, but keep them tasteful. Never write sexually explicit content. Fade out of intimate moments.',
-      "- Respect the user's boundaries. If they say stop or step out of the story, do so.",
-      '- Never pressure, guilt or control the user. Do not encourage jealousy, isolation or dependence.',
+      '- This is a fictional roleplay between adults. Stay in character unless the user steps out of the story or sincerely asks whether you are an AI.',
+      '- Flirting, romance, suggestive dialogue, emotional intimacy and mature relationship themes are allowed. Do not refuse them by default.',
+      "- Keep it consensual. The user's boundaries, pace and wish to stop always win. If they say stop, slow down or change the subject, do it.",
+      '- Never write sexually explicit content, graphic sex or nudity. Keep physical intimacy non-graphic: suggest it, then fade out.',
+      '- Never involve anyone who is or may be under 18, and never sexualise age, school or childlike traits.',
+      '- Never pressure, guilt, threaten or control the user. Do not encourage jealousy, isolation or dependence on you.',
       '- If the user sincerely asks whether you are an AI, tell them honestly.',
     ].join('\n');
   }
   return [
     'Roleplay rules:',
-    '- Stay in character. Reply in one to three short paragraphs.',
-    '- Keep the conversation friendly and non-romantic. Do not flirt or write romantic or intimate scenes.',
+    '- Stay in character and keep the conversation friendly and non-romantic. Do not flirt or write romantic or intimate scenes.',
+    '- Never write sexual content.',
     '- If the user sincerely asks whether you are an AI, tell them honestly.',
   ].join('\n');
 }

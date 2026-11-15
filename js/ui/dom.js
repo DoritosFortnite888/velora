@@ -1,5 +1,6 @@
 // Shared DOM helpers: icons, avatars, message formatting, page headers and the toast message.
 import { escapeHTML, hueFromString, initialsOf } from '../core/util.js';
+import { renderRoleplayHTML } from '../core/format.js';
 
 export const esc = escapeHTML;
 export const $ = (selector, root = document) => root.querySelector(selector);
@@ -39,16 +40,10 @@ export function avatarHTML(character, size = '') {
   return `<div class="${cls} avatar--initial" style="--hue:${hueFromString(character.name)}" aria-hidden="true">${esc(initialsOf(character.name))}</div>`;
 }
 
-// Turns message text into safe HTML. *Asterisk text* is shown as an action in italics.
+// Turns a reply into safe HTML. *Actions* show in a smaller italic font. Speech is normal text.
+// See js/core/format.js. Every piece of text is escaped, so no HTML can be injected.
 export function formatText(text) {
-  if (!text) return '';
-  return esc(text)
-    .split(/\n{2,}/)
-    .map((paragraph) => `<p>${paragraph.split('\n').map(emphasize).join('<br>')}</p>`)
-    .join('');
-}
-function emphasize(line) {
-  return line.replace(/\*([^*\n]+)\*/g, '<em class="action">$1</em>');
+  return renderRoleplayHTML(text);
 }
 
 export const TYPING_HTML = '<span class="typing" aria-label="Writing"><i></i><i></i><i></i></span>';
