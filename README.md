@@ -21,6 +21,7 @@ Velora is a free website that works like an app. You chat with AI characters, an
 - **Romance level**: a slider from Off to Intense. It only applies to confirmed adults with an age of 18 or more on record.
 - **Offline support**: the website is saved after one online visit. The model is downloaded once and then kept on your device.
 - **Backups**: export and import everything from the Profile page. The AI models page is linked from there.
+- **Speed**: Profile shows how fast replies have been on this device this session, and has a speed test. Nothing is sent anywhere.
 
 ## Rules that always apply
 
@@ -48,7 +49,7 @@ Open a character's **Edit** page to set:
   - **Qwen2.5 0.5B** (the default and fallback, about 300 MB, estimate): the most likely to run.
   - **Llama 3.2 1B** (about 900 MB, estimate, WebLLM memory figure 879 MB): the recommended choice for an iPhone 14. Better conversation than 0.5B. Not yet run on an iPhone 14 by this project.
   - **Qwen2.5 1.5B** (about 1 GB, estimate): larger, untested. One third-party iPhone report found it failed to load.
-  - **Llama 3.2 3B** (about 1.8 GB, estimate, WebLLM memory figure 2264 MB): the strongest option, but likely too large for an iPhone 14 Safari tab.
+  - **Llama 3.2 3B** (about 1.8 GB, estimate, WebLLM memory figure 2264 MB): the strongest option. It is likely too large for an iPhone 14 Safari tab, so Velora refuses to download it on iPhone. On a computer it can still be chosen.
   - Llama 3.2 models are under the Meta Llama 3.2 Community License, not Apache 2.0.
   - Switching models frees the memory of the previous one and keeps its files. Your characters, chats and memories are not affected.
 

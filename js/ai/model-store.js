@@ -13,6 +13,7 @@ import {
   EngineError,
 } from './engine.js';
 import { getDeviceReport } from './device.js';
+import { modelBlockReason } from '../core/model-policy.js';
 
 const LOAD_MARK = 'modelLoadInProgress';
 export const CANCELLED_MESSAGE = 'The download was cancelled. Files that were already saved stay on this device, so the next download can reuse them.';
@@ -93,6 +94,8 @@ async function loadWithMark(spec, options) {
 
 // Loads the selected model for chat. Never downloads files that are no longer on the device.
 export async function ensureLoaded(spec, { hasF16, onProgress } = {}) {
+  const block = modelBlockReason(spec, await getDeviceReport());
+  if (block) throw new EngineError(block);
   return loadWithMark(spec, { hasF16, onProgress });
 }
 
@@ -105,6 +108,9 @@ export async function downloadModel(spec, onProgress) {
   if (!report.ok) {
     throw new EngineError(`This device cannot run the model. ${report.problems.join(' ')}`);
   }
+  // Refused before any bytes are fetched, so a model that will not run here does not use the data.
+  const block = modelBlockReason(spec, report);
+  if (block) throw new EngineError(block);
 
   active = { specId: spec.id, progress: 0, text: 'Starting…' };
   const cancelled = new Promise((_, reject) => { cancelReject = reject; });

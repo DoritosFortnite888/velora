@@ -5,6 +5,7 @@ import { MODELS, DEVICE } from '../../core/config.js';
 import { formatMB } from '../../core/util.js';
 import { getDeviceReport } from '../../ai/device.js';
 import { isGenerating } from '../../ai/chat.js';
+import { modelBlockReason } from '../../core/model-policy.js';
 import {
   selectedSpec,
   chooseModel,
@@ -45,13 +46,15 @@ function modelCardHTML(spec, { selected, status, progress, report }) {
     spec.recommended ? '<span class="tag">Best fit for iPhone 14 (untested)</span>' : '',
   ].join('');
 
+  const block = modelBlockReason(spec, report);
   const warnings = [
     spec.untested ? '<p class="note">Not yet run on an iPhone 14 by this project. It may fail to load.</p>' : '',
     spec.highMemory ? '<p class="note is-warn">This model is likely too large for an iPhone 14 Safari tab. Expect failures or page reloads.</p>' : '',
+    block ? `<p class="note is-warn">${esc(block)}</p>` : '',
   ].join('');
 
   const busy = isDownloadBusy();
-  const downloadDisabled = !report.ok || status.downloaded || busy;
+  const downloadDisabled = !report.ok || status.downloaded || busy || !!block;
   const actions = [
     `<button class="btn btn--ghost" type="button" data-use="${esc(spec.id)}"${selected || busy ? ' disabled' : ''}>${selected ? 'Selected' : 'Use this model'}</button>`,
     status.downloading

@@ -25,7 +25,11 @@ import {
 } from '../js/core/config.js';
 import { selectMemoryLines, isDuplicateMemory, wordsOf, normalizeMemoryText, stemWord } from '../js/core/memory.js';
 import { classifyMessage, turnSection, repetitionNotes, lengthHint, personalityDirection } from '../js/core/reactions.js';
-import { normaliseRoleplayText } from '../js/core/format.js';
+import { normaliseRoleplayText, hasSpeech } from '../js/core/format.js';
+import { enqueue, idle, pendingJobs } from '../js/ai/queue.js';
+import { startReply, markChunk, finishReply, summarize, resetMetrics, recentReplies, getSpeedTest, recordSpeedTest } from '../js/ai/metrics.js';
+import { modelBlockReason } from '../js/core/model-policy.js';
+import { TURN_MARK } from '../js/core/prompt.js';
 
 let passed = 0;
 let failed = 0;
@@ -1011,6 +1015,106 @@ test('three replies that all open with the same action make the model open with 
     ai('*nods* "Ok."', '5'), you('c', '6'),
   ];
   assert.ok(repetitionNotes(history).some((n) => n.includes('spoken words')));
+});
+
+console.log('\nSpeed of replies, background work and iPhone limits');
+
+test('a reply made only of actions has no speech, and a reply with quoted words has speech', () => {
+  assert.equal(hasSpeech('*smiles*'), false);
+  assert.equal(hasSpeech('*nods* ...'), false);
+  assert.equal(hasSpeech('*smiles* "Hi."'), true);
+  assert.equal(hasSpeech(''), false);
+});
+
+test('background jobs run one at a time, in order, and a failing job does not stop the next', async () => {
+  const order = [];
+  enqueue(async () => { await new Promise((r) => setTimeout(r, 5)); order.push('first'); });
+  enqueue(async () => { throw new Error('boom'); });
+  enqueue(async () => { order.push('third'); });
+  assert.ok(pendingJobs() >= 1);
+  await idle();
+  assert.deepEqual(order, ['first', 'third']);
+  assert.equal(pendingJobs(), 0);
+});
+
+test('time to first word and writing speed are measured from the chunks, and the first chunk is not counted as writing', () => {
+  resetMetrics();
+  const timer = startReply(1000);
+  markChunk(timer, 1400); // first chunk after 400 ms
+  markChunk(timer, 1500);
+  markChunk(timer, 1600);
+  markChunk(timer, 1700);
+  const record = finishReply(timer, { text: '*nods* "Ok."', now: 1700 });
+  assert.equal(record.timeToFirstTokenMs, 400);
+  // 3 chunks after the first, over 300 ms: 10 per second.
+  assert.equal(record.tokensPerSecond, 10);
+  assert.equal(record.actionOnly, false);
+  assert.equal(recentReplies().length, 1);
+});
+
+test('a reply with no chunks has no timing, and an action-only reply is counted', () => {
+  resetMetrics();
+  const empty = finishReply(startReply(0), { text: '', now: 10, keep: false }); // chat never records an empty reply
+  assert.equal(empty.timeToFirstTokenMs, null);
+  assert.equal(empty.tokensPerSecond, null);
+  const actionOnly = startReply(0);
+  markChunk(actionOnly, 100);
+  finishReply(actionOnly, { text: '*smiles*', now: 200 });
+  const summary = summarize();
+  assert.equal(summary.count, 1);
+  assert.equal(summary.actionOnly, 1);
+});
+
+test('the summary uses medians, and a speed test is kept apart from chat replies', () => {
+  resetMetrics();
+  const list = [
+    { timeToFirstTokenMs: 100, tokensPerSecond: 10, actionOnly: false },
+    { timeToFirstTokenMs: 900, tokensPerSecond: 30, actionOnly: false },
+    { timeToFirstTokenMs: 300, tokensPerSecond: 20, actionOnly: true },
+  ];
+  const summary = summarize(list);
+  assert.equal(summary.medianTimeToFirstTokenMs, 300);
+  assert.equal(summary.medianTokensPerSecond, 20);
+  assert.equal(summary.actionOnly, 1);
+  const speed = startReply(0);
+  markChunk(speed, 50);
+  finishReply(speed, { text: '"Hi."', now: 90, keep: false });
+  assert.equal(recentReplies().length, 0, 'a speed test does not count as a chat reply');
+  recordSpeedTest({ model: 'Test', timeToFirstTokenMs: 50 });
+  assert.equal(getSpeedTest().model, 'Test');
+  resetMetrics();
+  assert.equal(getSpeedTest(), null);
+});
+
+test('the 3B model is refused on iPhone before any download, and allowed on a computer', () => {
+  const big = MODELS.find((m) => m.id === 'llama-3.2-3b');
+  const small = MODELS.find((m) => m.id === DEFAULT_MODEL_ID);
+  assert.equal(big.highMemory, true);
+  assert.ok(modelBlockReason(big, { isIOS: true }).includes('iPhone Safari tab'));
+  assert.equal(modelBlockReason(big, { isIOS: false }), null);
+  assert.equal(modelBlockReason(small, { isIOS: true }), null);
+  assert.ok(modelBlockReason(null, {}).includes('not available'));
+});
+
+test('the start of the system prompt is identical from one turn to the next, so the stable part can be reused', () => {
+  const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 29, personalityTraits: ['shy'], backstory: 'Grew up by the sea.' });
+  const first = chatOf(character, [you('hi', '1')])[0].content;
+  const second = chatOf(character, [you('hi', '1'), ai('*smiles* "Hi."', '2'), you('how are you today?', '3')])[0].content;
+  const stableA = first.slice(0, first.indexOf(TURN_MARK));
+  const stableB = second.slice(0, second.indexOf(TURN_MARK));
+  assert.equal(stableA, stableB);
+  assert.ok(stableA.length > 2000, 'the stable part is the larger part of the prompt');
+});
+
+test('the changing parts come after the stable part, and the safety rules are still last', () => {
+  const character = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 29 });
+  const memories = [{ id: 'm1', characterId: character.id, text: 'The user likes tea.', kind: 'fact', pinned: true, createdAt: 1, updatedAt: 1 }];
+  const system = buildChatMessages({ character, history: [you('hi', '1')], memories, chatSummary: 'They met.', contextTokens: 4096, replyTokens: 180, lengthGuide: LENGTHS.short.guide })[0].content;
+  assert.ok(system.indexOf('How to talk:') < system.indexOf('What you remember'));
+  assert.ok(system.indexOf('What you remember') < system.indexOf(TURN_MARK));
+  assert.ok(system.indexOf(TURN_MARK) < system.indexOf('Length of this reply:'));
+  assert.ok(system.indexOf('Length of this reply:') < system.indexOf('Roleplay rules:'));
+  assert.ok(system.endsWith(roleplayRules('adult')));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

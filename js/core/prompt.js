@@ -143,35 +143,46 @@ export function buildRollingSummaryMessages({ character, previous = '', transcri
   ];
 }
 
-// The system prompt, in a fixed order. The character comes first, the scene and style next, the
-// direction for this reply after that, and the safety rules last, so they are the final thing read.
+// The system prompt has two parts. The first part is the same for every reply in this chat, so it is
+// placed first and does not change between turns. The engine can then reuse the work it did for that
+// start of the prompt (if it supports prefix reuse; this is not yet measured on a phone). The second
+// part changes each turn: memories, the chat summary, the direction for this reply, and the length.
+// The safety rules come last, so they are the final thing the model reads.
+export const TURN_MARK = 'For this reply:';
+
 function systemPrompt(character, memories, lengthGuide, history, chatSummary) {
-  const sections = [];
   const mode = contentMode(character);
   const queryText = history.slice(-QUERY_MESSAGES).map((m) => m.text).join(' ');
 
-  sections.push(identityLine(character.name));
+  const stable = [identityLine(character.name)];
 
   const custom = clip(clean(character.systemPrompt), 700);
-  if (custom) sections.push(custom);
+  if (custom) stable.push(custom);
 
   const tagline = clip(clean(character.tagline), 120);
-  if (tagline) sections.push(`Who ${character.name} is: ${tagline}.`);
+  if (tagline) stable.push(`Who ${character.name} is: ${tagline}.`);
 
   const notes = clip(clean(character.personality), 300);
-  if (notes) sections.push(`Personality notes: ${notes}`);
+  if (notes) stable.push(`Personality notes: ${notes}`);
 
   const backstory = clip(clean(character.backstory), 400);
-  if (backstory) sections.push(`Background: ${backstory}`);
+  if (backstory) stable.push(`Background: ${backstory}`);
 
   const scenario = clip(clean(character.scenario), 300);
-  if (scenario) sections.push(`Current scenario: ${scenario}`);
+  if (scenario) stable.push(`Current scenario: ${scenario}`);
 
   const examples = clip(clean(character.exampleDialogue), 400);
-  if (examples) sections.push(`Example of how ${character.name} talks:\n${examples}`);
+  if (examples) stable.push(`Example of how ${character.name} talks:\n${examples}`);
 
   const extra = clip(clean(character.customInstructions), 300);
-  if (extra) sections.push(`Extra instructions: ${extra}`);
+  if (extra) stable.push(`Extra instructions: ${extra}`);
+
+  stable.push(sceneRules(character.name));
+  stable.push(CONTINUITY_RULES);
+  stable.push(NATURAL_STYLE);
+  stable.push(personaSection(character, mode));
+
+  const changing = [];
 
   // The memories most relevant to what is being discussed, plus any pinned ones. Written oldest first.
   const memoryLines = selectMemoryLines(memories, {
@@ -180,7 +191,7 @@ function systemPrompt(character, memories, lengthGuide, history, chatSummary) {
     charBudget: LIMITS.memoryChars,
   });
   if (memoryLines.length) {
-    sections.push(
+    changing.push(
       'What you remember about the user and your shared history. Use these when they fit. Do not invent other shared history:\n' +
         memoryLines.join('\n'),
     );
@@ -189,20 +200,15 @@ function systemPrompt(character, memories, lengthGuide, history, chatSummary) {
   // The running summary of older messages in this chat, so references to earlier events still work.
   const summary = clip(clean(chatSummary), 900);
   if (summary) {
-    sections.push(
+    changing.push(
       'Earlier in this chat (a summary of messages no longer shown in full). Stay consistent with it:\n' + summary,
     );
   }
 
-  sections.push(sceneRules(character.name));
-  sections.push(CONTINUITY_RULES);
-  sections.push(NATURAL_STYLE);
-  sections.push(personaSection(character, mode));
   // What the user's latest message means in the scene, how the character reacts, and what to avoid.
-  sections.push(turnSection(character, history));
-  sections.push(`Length of this reply: ${lengthGuide}`);
+  changing.push(turnSection(character, history));
+  changing.push(`Length of this reply: ${lengthGuide}`);
 
   // Safety rules come last and are never removed.
-  sections.push(roleplayRules(mode.mode));
-  return sections.join('\n\n');
+  return [...stable, ...changing, roleplayRules(mode.mode)].join('\n\n');
 }

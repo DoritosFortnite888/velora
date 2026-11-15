@@ -392,6 +392,7 @@ await brokenContext.addInitScript(() => {
     features: new Set(), limits: { maxBufferSize: 1 << 30, maxStorageBufferBindingSize: 1 << 28 }, info: {} }) } });
 });
 const brokenPage = await brokenContext.newPage();
+brokenPage.on('dialog', (d) => d.accept()); // the download asks the user to confirm the size
 await brokenPage.goto(BASE_URL + '#/models', { waitUntil: 'load' });
 await brokenPage.waitForTimeout(800);
 await brokenPage.click('[data-download="qwen2.5-0.5b"]').catch(() => {});
@@ -399,6 +400,32 @@ await brokenPage.waitForFunction(() => /could not|not be loaded|failed|cannot/i.
 const brokenStatus = await brokenPage.textContent('#toast').catch(() => '');
 check('failed library download explains the problem', /could not|failed|not be loaded/i.test(brokenStatus), brokenStatus.slice(0, 80));
 await brokenContext.close();
+
+// 20. On-device speed test. The stub model answers, so these numbers prove the wiring, not the speed of a phone.
+// The erase above removed the download, so download the model again first, as a user would.
+await goto('#/models');
+await page.click('[data-download="qwen2.5-0.5b"]').catch(() => {});
+await page.waitForFunction(() => /Downloaded/.test(document.querySelector('[data-download="qwen2.5-0.5b"]')?.textContent || ''), null, { timeout: 20000 }).catch(() => {});
+await goto('#/profile');
+await page.click('#speed');
+await page.waitForFunction(() => /Speed test:/.test(document.querySelector('#toast')?.textContent || ''), null, { timeout: 20000 }).catch(() => {});
+const speedToast = await page.textContent('#toast').catch(() => '');
+check('the speed test reports time to first word and writing speed (stub model)', /Speed test:.*first word/.test(speedToast), speedToast.slice(0, 90));
+check('the profile page shows the reply timing rows', (await page.textContent('body')).includes('median time to first word'));
+
+// 21. An iPhone is refused the 3B model before any download starts
+const iosContext = await browser.newContext({
+  viewport: { width: 390, height: 844 },
+  userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1',
+});
+const iosPage = await iosContext.newPage();
+iosPage.on('dialog', (d) => d.accept());
+await iosPage.goto(BASE_URL + '#/models', { waitUntil: 'load' });
+await iosPage.waitForTimeout(800);
+const iosBody = await iosPage.textContent('body');
+const iosDisabled = await iosPage.isDisabled('[data-download="llama-3.2-3b"]').catch(() => false);
+check('an iPhone is refused the 3B model before any download', iosBody.includes('too large for an iPhone Safari tab') && iosDisabled);
+await iosContext.close();
 
 check('no uncaught JavaScript errors', errors.length === 0, errors.slice(0, 3).join(' | ') || 'none');
 

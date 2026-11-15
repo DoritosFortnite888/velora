@@ -1,7 +1,7 @@
 // Velora settings. Change values here; the rest of the app reads them from this file.
 
 export const APP_NAME = 'Velora';
-export const APP_VERSION = '1.3.2';
+export const APP_VERSION = '1.4.0';
 
 // The on-device AI library (WebLLM). It is loaded from a public CDN at this exact version,
 // so an update cannot change behaviour without you noticing. If the library stops loading,

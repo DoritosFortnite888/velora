@@ -3,11 +3,33 @@ import { APP_VERSION, APP_NAME, DEVICE, MODELS } from '../../core/config.js';
 import { formatMB } from '../../core/util.js';
 import { getDeviceReport } from '../../ai/device.js';
 import { selectedSpec, modelStatus, removeModel } from '../../ai/model-store.js';
+import { runSpeedTest } from '../../ai/benchmark.js';
+import { summarize, getSpeedTest, recentReplies } from '../../ai/metrics.js';
 import { esc, pageHeader, notice, toast, confirmAction, ICON } from '../dom.js';
 import { seedStartersIfEmpty } from '../../data/db.js';
 import { starterCharacters } from '../../core/starters.js';
 
 const yesNo = (value) => (value ? 'Yes' : 'No');
+const ms = (value) => (value === null || value === undefined ? 'Not measured yet' : `${(value / 1000).toFixed(1)} s`);
+const perSecond = (value) => (value === null || value === undefined ? 'Not measured yet' : `${value} per second (estimate)`);
+
+function speedRows() {
+  const summary = summarize(recentReplies());
+  const test = getSpeedTest();
+  const row = (label, value) => `<div class="info-row"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+  const rows = [
+    row('Last 20 replies: median time to first word', summary ? ms(summary.medianTimeToFirstTokenMs) : 'No replies yet'),
+    row('Last 20 replies: median writing speed', summary ? perSecond(summary.medianTokensPerSecond) : 'No replies yet'),
+    row('Replies with actions only (no spoken words)', summary ? `${summary.actionOnly} of ${summary.count}` : 'No replies yet'),
+  ];
+  if (test) {
+    rows.push(row('Speed test: model', test.model));
+    rows.push(row('Speed test: time to first word', ms(test.timeToFirstTokenMs)));
+    rows.push(row('Speed test: writing speed', perSecond(test.tokensPerSecond)));
+    rows.push(row('Speed test: model load time', ms(test.loadMs)));
+  }
+  return rows.join('');
+}
 
 function deviceRows(r) {
   const row = (label, value) => `<div class="info-row"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
@@ -53,6 +75,15 @@ export async function renderProfile() {
       </section>
 
       <section class="panel">
+        <div class="panel-head">${ICON.cpu}<h2>Speed</h2></div>
+        <p class="muted">Timing is measured on this device and kept only for this session. Nothing is sent anywhere. The speed test writes a short fixed reply with the selected model, so it needs that model to be downloaded.</p>
+        <div class="info-list">${speedRows()}</div>
+        <div class="btn-row">
+          <button class="btn btn--ghost" id="speed" type="button">Run speed test</button>
+        </div>
+      </section>
+
+      <section class="panel">
         <div class="panel-head">${ICON.shield}<h2>Roleplay and adult content</h2></div>
         <ul class="rules-list">
           <li>Romance is only for characters confirmed as adults, with an age of 18 or more on record. Otherwise romance stays off.</li>
@@ -93,6 +124,21 @@ export async function renderProfile() {
     bind(root, { rerender }) {
       root.querySelector('#recheck').addEventListener('click', () => {
         getDeviceReport({ force: true }).then(() => rerender());
+      });
+
+      root.querySelector('#speed').addEventListener('click', async (e) => {
+        const button = e.currentTarget;
+        button.disabled = true;
+        button.textContent = 'Testing…';
+        try {
+          const result = await runSpeedTest();
+          const first = result.timeToFirstTokenMs === null ? 'no words' : `${(result.timeToFirstTokenMs / 1000).toFixed(1)} s`;
+          toast(`Speed test: first word after ${first}, ${result.tokensPerSecond ?? 'unknown'} per second (estimate).`, 7000);
+        } catch (err) {
+          toast(err.message, 7000);
+        } finally {
+          rerender();
+        }
       });
 
       root.querySelector('#persist').addEventListener('click', async () => {

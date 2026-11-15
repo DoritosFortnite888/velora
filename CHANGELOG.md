@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.4.0
+
+Speed, reliability and model limits. Nothing was rebuilt. Characters, chats, memories, settings and the database are unchanged. Model files already downloaded should be kept: the update code only deletes caches whose names start with `velora-`, and the library's model cache has a different name. This was checked by reading the code, not on a device.
+
+**Important:** nothing here has been measured on an iPhone. The speed test and the timing rows on the Profile page are how you measure it. See docs/LIMITATIONS.md.
+
+### Replies are not held back by background work
+- Memory notes and chat summaries used to run before the reply's screen was released. The stop button stayed up and the next send waited. They now run after the reply is shown, through a queue (`js/ai/queue.js`, `js/ai/chat.js`).
+- A new message waits for background work that is already running, and it is not cancelled. An earlier version cancelled it, so a quick reply meant the summary never finished. That bug was found by the browser test and fixed.
+- In a browser test with a stub model, the spikes in input lock-up after a reply were removed: the original build had 982 and 1300 ms pauses after a reply, the new build stayed at about 617 ms. The stub's own streaming time is included in both. Real phone numbers will differ.
+- Stop works while a send is waiting for background work. The message is kept, and no reply is written.
+
+### Timing you can see
+- Each reply records time to first word (after the model is ready), writing speed (an estimate, based on streamed pieces), and whether it had spoken words. These are kept in memory for this session only, and nothing is saved or sent. (`js/ai/metrics.js`)
+- Profile > Speed shows the medians for the last 20 replies, the number of action-only replies, and a **Run speed test** button. The test writes a short fixed reply with the selected model. It needs that model to be downloaded, and it downloads nothing. (`js/ai/benchmark.js`)
+
+### Prompt ordering for reuse
+- The system prompt now has two parts. The first (about two-thirds of the prompt: identity, character text, scene, style and personality) is the same on every turn. The second (memories, summary, the direction for this reply, the length) changes each turn. The safety rules remain last.
+- This makes prefix reuse possible if the engine supports it. Whether WebLLM 0.2.79 reuses the cached prefix has not been measured.
+
+### Model limits on iPhone
+- The 3B model is refused on iPhone before any download starts, in the store and on the Models page. The reason is shown. On a computer it can still be chosen. (`js/core/model-policy.js`)
+- Why the 3B download failed before has not been confirmed. This environment has no network, so the model id and sizes could not be checked against WebLLM 0.2.79. The block stops a 1.8 GB download that is unlikely to work on iPhone.
+
+### Replies with spoken words
+- The style guide now says every reply includes spoken words in quotes, and an action never replaces them. `hasSpeech` checks this for every reply.
+
+### Housekeeping
+- Version 1.4.0. The service worker cache is renamed (`velora-v7`).
+- Browser test: the download confirmation needed a dialog handler in the fresh browser context. That was a test bug, present in 1.3.2 too.
+- Tests: 134 logic tests (was 126). Browser smoke test: 55 checks (was 52), run in headless Chromium with the stub model.
+
 ## 1.3.2
 
 Immersive roleplay upgrade. Nothing was rebuilt. Characters, chats, memories, settings, models and the database are unchanged.

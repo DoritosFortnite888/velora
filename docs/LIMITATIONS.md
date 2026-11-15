@@ -33,6 +33,44 @@ The stub AI library in the browser test returns fake replies. It proves Velora's
 - **Action formatting depends on the model using asterisks.** Velora shows *asterisk actions* in italics. If a model writes actions some other way, they appear as normal text.
 - **Velora cannot stop a model from narrating your actions.** Its style guide asks the model not to, but it may still do it.
 
+## Version 1.4.0: speed, reliability and model limits
+
+**Read this first.** Nothing in this version has been run on a phone, and this environment had no network, so the model could not be downloaded or benchmarked here. The only real browser runs used a stub model. What was checked is listed below. For real numbers, use the speed test on Profile, and tell us what you see.
+
+### What was changed, and what was measured
+- **Replies are not held back by memory work.** Measured with a stub model in headless Chromium: the original build paused for 982 and 1300 ms after some replies because memory and summary work ran first. The new build stayed at about 617 ms, the stub's own streaming time. On a phone, where a summary can take several seconds, the effect should be bigger. This is an inference from the code path, not a device measurement.
+- **Background work cannot starve.** A quick reply no longer cancels a summary in progress. The browser test found that bug, and it is fixed.
+- **Time to first word and writing speed are recorded** for each reply, and for the speed test. They are estimates: writing speed counts streamed pieces, which are about one token each but not exactly.
+- **The prompt is split into a stable part and a changing part.** About two-thirds of a typical system prompt is identical from turn to turn. Whether WebLLM reuses that cached start has **not been measured**.
+- **The 3B model is refused on iPhone** before any download starts. Velora has no measurement of the device's real memory, so this is based on WebLLM's own figure and third-party reports.
+
+### What was not done, and why
+- **No benchmark of Qwen against Llama on iPhone 14.** The sandbox could not download the models or reach a phone. The default model and the recommended model are unchanged, and they remain untested on an iPhone 14.
+- **No measured speed on iPhone 14.** The first-word delay is still mostly prompt reading, which was not measured. The stub shows that the app's own code no longer adds delay after a reply.
+- **No CPU (WASM) fallback.** WebLLM runs only on WebGPU. It has no WASM inference path to optimise. A CPU fallback would need a different runtime, which has not been evaluated.
+- **The WebLLM library is still loaded from a CDN** the first time. The service worker keeps it after that, so it works offline once it has been loaded once. Bundling it inside the project would need network access to fetch it, which was not available here.
+- **Model files are still fetched by WebLLM from the model host** (and its model library from its own host). Velora's service worker does not cache these. WebLLM stores them in browser Cache Storage, under a name the app's cache clearing does not touch. Offline use after a download has **not been tested on an iPhone**.
+- **OPFS versus IndexedDB on iOS was not tested.** Velora keeps its data in IndexedDB, and WebLLM keeps model files in Cache Storage. Safari may clear script-writable storage after a period without use, as far as we know. Export a backup regularly.
+- **Relationship progression and event tracking are not new.** Memories and the rolling chat summary carry events. No separate relationship stage was added, because it would need a rule for how the relationship changes.
+- **The specialist systems are small JavaScript rules, not separate models.** They are: the situation reader and the physical-action reader (`js/core/reactions.js`), the memory selection (`js/core/memory.js`), the scene and continuity rules (`js/core/persona.js`), and the action formatter (`js/core/format.js`). Their effect on reply quality has not been measured.
+- **No fine-tuning.** A fine-tune would need a training run on a computer with a suitable GPU, a large set of good roleplay examples, a licence check on the base model, and a quantization step for WebGPU. None of that was attempted or tested here, and prompts are not training.
+
+### Test status for 1.4.0
+
+| Area | How it was checked |
+|---|---|
+| Background queue order and failure handling | `npm test` (automatic) |
+| Timing maths and the speech check | `npm test` (automatic) |
+| The 3B block on iPhone, and not on a computer | `npm test` and the browser test (automatic) |
+| The stable prompt start is identical across turns | `npm test` (automatic) |
+| Stop during the wait, the speed test, and the iPhone block in a real browser | `tests/browser-smoke.mjs` (headless Chromium, stub model) |
+| Reply unlock time, original versus new | Browser stub measurement, as above |
+| **Real model: speed, time to first word, writing speed** | **Not tested.** Use Profile > Speed. |
+| **Real model: Qwen versus Llama quality** | **Not tested.** |
+| **Real model on iPhone 14, including the 1B model** | **Not tested.** |
+| **Offline use after a download, on iPhone 14** | **Not tested.** |
+| **Whether WebLLM reuses the cached prompt start** | **Not tested.** |
+
 ## Version 1.3.2: immersive roleplay
 
 **Read this first.** These changes shape what the model is asked to do. They do not change the model. Nothing here has been checked on a real model, so how well a model keeps actions, reacts to physical moves, or remembers a scene over a long chat is not proven.

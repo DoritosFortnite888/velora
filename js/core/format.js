@@ -63,6 +63,12 @@ export function renderRoleplayHTML(text) {
     .join('');
 }
 
+// True when a reply has spoken words: text outside asterisks that has at least one letter or digit.
+// A reply made only of actions, such as "*smiles*", has no speech and returns false.
+export function hasSpeech(text) {
+  return parseRoleplay(text).some((line) => line.some((s) => s.kind === 'speech' && /[\p{L}\p{N}]/u.test(s.text)));
+}
+
 // Fixes common formatting slips in a model reply, so the roleplay format holds:
 //  - dialogue wrapped in asterisks (*"Hi"*) is moved outside them,
 //  - an action written in parentheses or square brackets, such as (laughs softly), becomes *laughs softly*.
