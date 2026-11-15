@@ -432,6 +432,9 @@ await goto('#/models');
 const modelsText = await page.textContent('body');
 check('the Models page explains automatic choice', modelsText.includes('Automatic choice'));
 check('the Models page lists GPT-OSS as not offered, with a reason', modelsText.includes('GPT-OSS 20B') && modelsText.includes('Not offered'));
+check('the Models page lists LFM2.5 as prepared but not offered', modelsText.includes('LFM2.5 1.2B Instruct') && modelsText.includes('Not offered yet'));
+check('LFM2.5 has no download button', (await page.$$('[data-download="lfm2.5-1.2b"]')).length === 0);
+check('Llama 3.2 1B is still offered for download', (await page.$$('[data-download="llama-3.2-1b"]')).length === 1);
 // Picking a model by hand turns automatic choice off, and switching back on keeps the downloaded model
 await page.click('[data-use="llama-3.2-1b"]').catch(() => {});
 await page.waitForTimeout(400);

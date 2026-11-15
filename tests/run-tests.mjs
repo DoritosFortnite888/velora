@@ -32,7 +32,8 @@ import { modelBlockReason } from '../js/core/model-policy.js';
 import { TURN_MARK } from '../js/core/prompt.js';
 import { weightsMB } from '../js/core/sizing.js';
 import { chooseSmartest, eligibility, resolveMode } from '../js/core/model-select.js';
-import { INVESTIGATED_MODELS, IOS_MODEL_BUDGET_MB } from '../js/core/config.js';
+import { INVESTIGATED_MODELS, IOS_MODEL_BUDGET_MB, CANDIDATE_MODELS } from '../js/core/config.js';
+import { searchText, summarizeHFFiles, verdict } from '../scripts/verify-lib.mjs';
 
 let passed = 0;
 let failed = 0;
@@ -1189,6 +1190,60 @@ test('every investigated OpenAI model is listed as not offered, with a reason, a
 test('the investigated list is never used to pick a model', () => {
   const result = chooseSmartest(MODELS, { report: DESKTOP, downloadedIds: ['gpt-oss-20b', 'gpt2-xl'] });
   assert.equal(result.spec, null);
+});
+
+console.log('\nLFM2.5 candidate and the verification gate');
+
+const LFM = CANDIDATE_MODELS.find((m) => m.id === 'lfm2.5-1.2b');
+
+test('the LFM2.5 candidate is prepared but is not in the download list', () => {
+  assert.ok(LFM, 'the candidate is listed');
+  assert.equal(MODELS.some((m) => m.id === LFM.id), false, 'an unverified model must not be offered');
+  assert.equal(LFM.webllmIdF16, null, 'no WebLLM id until it is verified');
+  assert.equal(LFM.webllmIdF32, null);
+  assert.ok(LFM.status.startsWith('Not offered'));
+  assert.ok(LFM.reason.length > 40);
+  assert.ok(LFM.licence.length > 0);
+});
+
+test('automatic choice never picks the LFM2.5 candidate, even when its files are marked as downloaded', () => {
+  const result = chooseSmartest(MODELS, { report: DESKTOP, downloadedIds: [LFM.id] });
+  assert.equal(result.spec, null);
+});
+
+test('the candidate size estimate is arithmetic, and it fits the iPhone budget only by estimate', () => {
+  const mb = weightsMB(LFM.paramsB, LFM.bitsPerWeight);
+  assert.ok(mb > 500 && mb < 800, `weights about ${mb} MB`);
+});
+
+test('Llama 3.2 1B is still the recommended model, and it is untouched by the candidate', () => {
+  const rec = MODELS.filter((m) => m.recommended);
+  assert.equal(rec[0].id, 'llama-3.2-1b');
+  assert.equal(byId('llama-3.2-1b').webllmIdF16, 'Llama-3.2-1B-Instruct-q4f16_1-MLC');
+});
+
+test('the verifier helper finds needles case-insensitively and counts them', () => {
+  const hits = searchText('LFM2 model, lfm2-tiny, nothing else', ['lfm2', 'missing']);
+  assert.deepEqual(hits, [{ needle: 'lfm2', count: 2 }, { needle: 'missing', count: 0 }]);
+});
+
+test('the verifier helper summarises a repo file list: size, config, tokenizer and weights', () => {
+  const files = summarizeHFFiles([
+    { rfilename: 'config.json', size: 100 },
+    { rfilename: 'model.safetensors', size: 600 * 1024 * 1024 },
+    { rfilename: 'tokenizer.json', size: 10 },
+  ]);
+  assert.equal(files.fileCount, 3);
+  assert.equal(files.totalMB, 600);
+  assert.ok(files.hasConfig && files.hasTokenizer && files.hasWeights);
+  const empty = summarizeHFFiles([]);
+  assert.equal(empty.hasWeights, false);
+});
+
+test('a verification passes only when every check passes, and an empty set of checks never passes', () => {
+  assert.equal(verdict([{ name: 'a', pass: true }, { name: 'b', pass: true }]).pass, true);
+  assert.deepEqual(verdict([{ name: 'a', pass: true }, { name: 'b', pass: false }]).failed, ['b']);
+  assert.equal(verdict([]).pass, false);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

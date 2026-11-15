@@ -1,7 +1,7 @@
 // The model selection screen. Lists every model with its size, memory estimate, intelligence and
 // speed, and lets the user download (after confirming), cancel, delete, or switch between models.
 // Nothing here downloads a model without a tap and a confirmation.
-import { MODELS, DEVICE, INVESTIGATED_MODELS } from '../../core/config.js';
+import { MODELS, DEVICE, INVESTIGATED_MODELS, CANDIDATE_MODELS } from '../../core/config.js';
 import { weightsMB } from '../../core/sizing.js';
 import { formatMB } from '../../core/util.js';
 import { getDeviceReport } from '../../ai/device.js';
@@ -120,7 +120,8 @@ function autoPanelHTML(mode, auto, selected) {
 
 // Models looked at and not offered, with the reason and the size estimate from their parameters.
 function investigatedHTML() {
-  const rows = INVESTIGATED_MODELS.map((m) => {
+  // Candidates that are prepared but not verified come first, then the investigated models.
+  const rows = [...CANDIDATE_MODELS, ...INVESTIGATED_MODELS].map((m) => {
     const size = m.paramsB ? `About ${formatMB(weightsMB(m.paramsB, m.bitsPerWeight))} of weights (estimate, before runtime memory).` : '';
     return `
       <div class="info-list">
@@ -131,7 +132,7 @@ function investigatedHTML() {
   return `
     <section class="panel">
       <h2>Investigated, not offered</h2>
-      <p class="muted small">These were looked at and are not offered, so they cannot be downloaded from Velora. The reason is given for each.</p>
+      <p class="muted small">These were looked at and are not offered, so they cannot be downloaded from Velora. The reason is given for each. A model moves onto the download list only after its runtime and files are verified.</p>
       ${rows}
     </section>`;
 }

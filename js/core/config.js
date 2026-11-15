@@ -1,7 +1,7 @@
 // Velora settings. Change values here; the rest of the app reads them from this file.
 
 export const APP_NAME = 'Velora';
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.6.0';
 
 // The on-device AI library (WebLLM). It is loaded from a public CDN at this exact version,
 // so an update cannot change behaviour without you noticing. If the library stops loading,
@@ -266,5 +266,28 @@ export const INVESTIGATED_MODELS = [
     bitsPerWeight: 4.5,
     status: 'Not offered: too weak for roleplay, and no compatible runtime in Velora',
     reason: 'A genuine small OpenAI GPT open-weight model from 2019. It was not trained to follow instructions or hold a character, so its replies are not usable for roleplay, and Velora has no runtime that loads it.',
+  },
+];
+
+// Candidate models that are prepared but NOT offered. They are kept out of MODELS on purpose: MODELS
+// requires a verified WebLLM id for every model, and a candidate has none yet. To offer one, run
+// `node scripts/verify-model.mjs <id>` on a machine with internet access, confirm each check, then move
+// the entry into MODELS with its verified ids and the same fields as the other models.
+// Nothing here is downloaded, and automatic choice never looks at this list.
+export const CANDIDATE_MODELS = [
+  {
+    id: 'lfm2.5-1.2b',
+    displayName: 'LFM2.5 1.2B Instruct (Liquid AI)',
+    paramsB: 1.2,
+    bitsPerWeight: 4.5,              // a 4-bit build with per-group scales, as an estimate
+    status: 'Not offered yet: runtime and model not verified',
+    reason: 'Liquid AI model with a hybrid design (short convolutions plus attention), made for small devices. Velora cannot offer it until a WebLLM build of this architecture is confirmed in the pinned library, or another runtime is verified. Its licence is not Apache 2.0 or the Llama licence and must be read before use.',
+    // Names to look for in the WebLLM package. "lfm2" matches every LFM2 family build.
+    familyNeedles: ['lfm2'],
+    // Hugging Face repos to check. The first name is a guess that must be confirmed on huggingface.co.
+    hfRepos: ['LiquidAI/LFM2.5-1.2B-Instruct'],
+    webllmIdF16: null,
+    webllmIdF32: null,
+    licence: 'Custom Liquid AI licence (to read before use)',
   },
 ];

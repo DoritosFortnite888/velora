@@ -22,6 +22,7 @@ Velora is a free website that works like an app. You chat with AI characters, an
 - **Offline support**: the website is saved after one online visit. The model is downloaded once and then kept on your device.
 - **Backups**: export and import everything from the Profile page. The AI models page is linked from there.
 - **Speed**: Profile shows how fast replies have been on this device this session, and has a speed test. Nothing is sent anywhere.
+- **LFM2.5 1.2B Instruct (Liquid AI)** is prepared but **not offered**. It has not been verified, so it cannot be downloaded yet. To check it on a computer with internet access, run `node scripts/verify-model.mjs lfm2.5-1.2b`. See docs/LFM25_INTEGRATION.md.
 - **Automatic model choice**: by default Velora uses the smartest model already downloaded that fits the device. It never downloads a model on its own. See the Models page, and docs/OPENAI_GPT_INVESTIGATION.md for why no OpenAI GPT model is offered for iPhone 14.
 
 ## Rules that always apply

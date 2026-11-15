@@ -33,6 +33,30 @@ The stub AI library in the browser test returns fake replies. It proves Velora's
 - **Action formatting depends on the model using asterisks.** Velora shows *asterisk actions* in italics. If a model writes actions some other way, they appear as normal text.
 - **Velora cannot stop a model from narrating your actions.** Its style guide asks the model not to, but it may still do it.
 
+## Version 1.6.0: LFM2.5 1.2B candidate
+
+**Read this first.** LFM2.5 1.2B Instruct is **not offered** in this build. Nothing was downloaded, loaded or generated, because the build environment had no internet access. No iPhone 14, iOS Safari or WebGPU compatibility is claimed.
+
+- **The runtime is unknown.** Whether the pinned WebLLM 0.2.79 has a build for this architecture was not checked. The verifier is the check, and it must be run with internet access.
+- **The model's details were not confirmed here.** The repo id in the config is a guess. The licence is a custom one, and it has not been read.
+- **Memory and speed are estimates or unknown.** The 960 MB figure is a rough extrapolation from Llama 3.2 1B, not a measurement.
+- **Roleplay quality and long-conversation consistency are untested.** The phone test plan in `docs/LFM25_INTEGRATION.md` is for you to run.
+- **The verifier's success path is untested.** It depends on the npm tarball layout and the Hugging Face API response, which can only be checked with network access.
+
+### What was tested for version 1.6.0
+
+| Area | How it was checked |
+|---|---|
+| Candidate stays out of the download list and automatic choice | `npm test` (automatic) |
+| Size arithmetic and the Llama 1B recommendation are unchanged | `npm test` (automatic) |
+| Verifier helpers: needle search, file summary, verdict | `npm test` (automatic) |
+| Verifier failure path (no network): reports and exits 1 | Run manually in this build |
+| Candidate visible but not downloadable on the Models page | `tests/browser-smoke.mjs` (headless Chromium, stub model) |
+| **Verifier success path (WebLLM package, Hugging Face repo)** | **Not tested. Needs network.** |
+| **LFM2.5 download, load or reply** | **Not tested.** |
+| **LFM2.5 roleplay quality and long conversations** | **Not tested.** |
+| **LFM2.5 on iPhone 14, iOS Safari, WebGPU** | **Not tested. No compatibility is claimed.** |
+
 ## Version 1.5.0: OpenAI GPT investigation and automatic choice
 
 **Read this first.** This environment had no internet access. No model was downloaded, no model list was read, and no runtime was run, so none of the model claims below are measured. The sizes are arithmetic, and the rest comes from published facts recalled from memory. Those are marked in `docs/OPENAI_GPT_INVESTIGATION.md`.

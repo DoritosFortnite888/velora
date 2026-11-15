@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.6.0
+
+LFM2.5 1.2B Instruct: integration prepared, verification tool added. **The model is not offered**, because nothing about it could be verified in this build. Llama 3.2 1B and Qwen2.5 0.5B are unchanged. Characters, chats, memories and the database are unchanged.
+
+**Important:** no iPhone 14 compatibility is claimed. No download, load, generation, roleplay or long-conversation test was run, because the build environment had no internet access. See docs/LFM25_INTEGRATION.md.
+
+### What was added
+- **A candidate entry** for LFM2.5 1.2B Instruct in `CANDIDATE_MODELS` (`js/core/config.js`). It is kept out of `MODELS`, which requires a verified WebLLM id for every offered model. The Models page shows it as "Not offered yet".
+- **A verification command**: `node scripts/verify-model.mjs lfm2.5-1.2b`. On a machine with internet access it checks that the pinned WebLLM package mentions the family, that the Hugging Face repo exists with a config, tokenizer and weight files, and it shows the licence tag. It downloads nothing that is kept. It exits 0 only when every check passes. Run here, it failed as expected, because no host was reachable. Its success path is untested.
+- **A test plan** for a phone, with ten roleplay messages to score and a long-conversation check (`docs/LFM25_INTEGRATION.md`).
+
+### Not changed
+- The download list, automatic choice and the default model. Automatic choice never looks at candidates.
+- The data layer. Characters, chats, memories and settings are not touched.
+
+### Housekeeping
+- Version 1.6.0. The service worker cache is renamed (`velora-v9`).
+- Tests: 150 logic tests (was 143). Browser smoke test: 63 checks (was 60), run in headless Chromium with the stub model.
+
 ## 1.5.0
 
 OpenAI GPT open-weight investigation, and automatic choice of the smartest model that fits. Nothing was rebuilt. Characters, chats, memories and the database are unchanged. The only stored data added is two settings (`modelMode`), and the existing `selectedModel` setting is kept.
