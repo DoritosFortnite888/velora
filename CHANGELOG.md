@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.3.2
+
+Immersive roleplay upgrade. Nothing was rebuilt. Characters, chats, memories, settings, models and the database are unchanged.
+
+**Important:** these are changes to the instructions sent to the model. Nothing here has been run on a real model. See docs/LIMITATIONS.md.
+
+### Actions in every reply
+- Almost every reply now includes at least one action in *asterisks*, tied to what was just said or done. Each reply gets a direction line that asks for it. (`NATURAL_STYLE` in `js/core/persona.js`, `turnSection` in `js/core/reactions.js`)
+- The rules that let the model drop the action ("needs no action", "use an action only when it fits") are removed.
+- Replies vary the shape instead: if the last few replies opened with an action, the next one opens with speech, and the action follows. The action itself is kept.
+- Narration styles still differ. Minimal means short actions, not no actions. (`ROLE_STYLES` in `js/core/config.js`)
+
+### Physical interactions
+- Three new situations are recognised, each with its own reaction direction: **conflict** (punches, kicks, shoves, fights, hits, including on objects), **contact** (hugs, holding or grabbing a hand, touching, leaning in, pulling away) and **movement** (running, walking off, leaving, sitting down). These are checked before the emotional situations, so "I punch the wall" reads as force, not as anger. (`js/core/reactions.js`)
+- Touch follows the romance rule. For a character who is not a confirmed adult, or whose romance level is Off, the reply is friendly and non-romantic. For a confirmed adult with romance on, touch stays within the romance level.
+- Fights are kept in the scene: the character reacts to the impact and the fallout, and the reply is told not to be graphic.
+- A punch or kick with a real-world marker (for example "for real" or "I know where you live") is treated as a real concern, the same as a threat.
+
+### Staying in the scene
+- The scene rules say the character replies as itself, never as a support agent, with no disclaimers or offers of help inside the scene. (`sceneRules` in `js/core/persona.js`)
+- The continuity rules ask the model to keep the physical scene consistent: where each character is, who is sitting or moving, what each holds, and what just happened. This uses the chat already stored. Nothing new is saved. (`CONTINUITY_RULES` in `js/core/persona.js`)
+
+### Safety
+- Every protection from 1.3.1 is kept, in the same order: the safety rules are still the last thing the model reads. Friendly mode still never writes sexual content, and romance still needs a confirmed adult.
+
+### Housekeeping
+- Version 1.3.2. The service worker cache is renamed (`velora-v6`).
+- Prompt size: a typical character's system prompt is about 580 characters longer than in 1.3.1. The new wording is kept short so the prompt still fits the 2048-token test window with room for the newest message.
+- Tests: 124 logic tests (was 113).
+
 ## 1.3.1
 
 Natural roleplay fixes. Nothing was rebuilt. Characters, chats, memories, settings and the database are unchanged.

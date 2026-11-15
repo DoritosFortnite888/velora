@@ -6,15 +6,20 @@
 // decides the words, and the safety rules are always sent last.
 import { parseRoleplay } from './format.js';
 import { PERSONALITY_TRAITS } from './config.js';
+import { contentMode } from './persona.js';
 
 // Checked in this order. The first pattern that matches decides the situation.
+// Physical actions come early, so "I punch the wall" is read as force, not as a sad or angry word.
 const SITUATIONS = [
   ['threat', /\b(eliminat\w*|kill|destroy|murder|erase|annihilat\w*|slaughter|bury)\s+(you|u|ya)\b|\b(?:i'?m|i am|i will|i'?ll|gonna|going to)\s+(?:\w+\s+){0,2}?(?:kill|hurt|destroy|eliminate|murder|beat|stab|shoot|erase|finish|get|find)\s+(?:you|u|ya)\b/i],
-  ['insult', /\b(idiot|stupid|moron|pathetic|loser|useless|dumb|shut up|hate you|worthless)\b/i],
+  ['conflict', /\b(punch\w*|kick\w*|slap\w*|shove\w*|push\w*|hit|hits|hitting|strike|strikes|struck|attack\w*|fight\w*|tackle\w*|choke\w*|slam\w*|smash\w*|bash\w*|wrestl\w*|stab\w*|shoot\w*)\b/i],
+  ['contact', /\b(hug\w*|cuddl\w*|hold(?:s|ing)? (?:your |her |his |their |my |the )?hands?|grab\w*|hand(?:s)? (?:her|him|them|you)|touch\w*|stroke\w*|kiss\w*|pat|pats|reach\w* (?:for|out to|toward|towards) (?:your|her|his|their|you|them|him)|tap\w* (?:your|her|his|their|you)|lean\w* (?:on|against|in to|into) (?:your|her|his|their|you)|pull\w* (?:your |her |his |their )?(?:hand|arm|away|back|free))\b/i],
+  ['insult', /\b(idiot|stupid|moron|pathetic|loser|useless|dumb|shut up|hate you|worthless|you'?re wrong|you are wrong|that'?s not true|liar|don'?t lie)\b/i],
   ['anger', /\b(angry|furious|how dare|i'?m done|leave me alone|get out|enough)\b/i],
   ['fear', /\b(scared|afraid|terrified|help me|footsteps|someone is following|something moved)\b/i],
+  ['movement', /\b(run|runs|running|ran|sprint\w*|flee\w*|escap\w*|walk(?:s|ed|ing)?|leav\w*|sit|sits|sitting|sat|stand(?:s|ing)? up|stood up|jump\w*|dash\w*|storm\w* off|head\w* (?:out|off|for|toward|towards))\b/i],
   ['sadness', /\b(sad|lonely|cry|crying|sorry|i lost|gone|died|dead|broke up|hurts?|hurting)\b/i],
-  ['affection', /\b(love you|miss you|adore|proud of you|thank you|thanks|you'?re (?:so )?(?:sweet|cute|amazing|kind)|glad (?:you|to)|happy to see)\b/i],
+  ['affection', /\b(love you|miss you|adore|proud of you|thank you|thanks|you'?re (?:so )?(?:sweet|cute|amazing|kind)|you (?:look|looked) (?:really |so |very )?(?:nice|good|beautiful|handsome|pretty|cute|hot|gorgeous)|glad (?:you|to)|happy to see)\b/i],
   ['surprise', /\b(wow|whoa|no way|omg|unbelievable|i can'?t believe)\b/i],
   ['playful', /\b(haha|hehe|lol|lmao|kidding|just joking|teasing|jk)\b/i],
   ['confusion', /\b(what do you mean|i don'?t (?:get|understand)|confused|huh|wait,? what)\b/i],
@@ -35,11 +40,14 @@ const DIRECTION = {
   anger: 'The user is angry or pushing {name} away. React honestly: stand firm, cool down, apologise, or get defensive, depending on personality. Do not moralise.',
   fear: 'Something frightening is happening in the scene. Let {name} react with caution, alertness or fear, shown through body and voice.',
   sadness: 'The user sounds sad or hurt. Let {name} soften, respond with care in character, and ask one gentle question if it helps.',
-  affection: 'The user is warm or affectionate. Let {name} respond warmly in character, within the romance level.',
+  affection: 'The user is warm or affectionate. Let {name} respond warmly in character. If romance is on for {name}, stay within that romance level. If it is off, respond as warm friendship, without romance.',
   surprise: 'The user said something surprising. Let {name} react with surprise, then respond to the specific words.',
   playful: 'The user is joking or teasing. Play along in character.',
   confusion: 'The user seems confused by something {name} said or did. Let {name} clear it up, or ask a short question in character.',
   question: 'The user asked {name} something. Answer it in character and, if it fits, ask one question back.',
+  conflict: 'The user used physical force, a punch, kick, shove, hit or fight, on {name} or on something in the scene. React to the impact and the noise first, then to what was hit. {name} may flinch, stagger, block, shout, fight back or step away, depending on personality. Keep it brief and not graphic: show pain, anger and the fallout, not gore.',
+  contact: 'The user touched {name} or reached for them. React to the exact contact: let {name} accept it, pull back, freeze, tease, or lean in, depending on personality and mood.',
+  movement: 'The user moved, sat down, left or ran. Let {name} notice the movement in the scene: follow, call after them, make room, glance over, or let them go, depending on personality and what is happening around them. Keep {name}\'s position and surroundings consistent with the last reply.',
   neutral: 'React to the specific words the user used, and keep the scene moving.',
   real: 'The user\'s message may be a real concern, not part of the story. Step out of the story briefly, speak plainly and kindly as yourself, ask how they are, and point them to someone they trust or to local emergency services if someone may be in danger. Do not carry on with the fiction on this point.',
 };
@@ -52,7 +60,7 @@ export function classifyMessage(text) {
   if (VIOLENT.test(value) && REAL_WORLD.test(value)) return { kind: 'real', realConcern: true };
   for (const [kind, pattern] of SITUATIONS) {
     if (pattern.test(value)) {
-      const realConcern = ['threat', 'insult', 'anger'].includes(kind) && REAL_WORLD.test(value);
+      const realConcern = ['threat', 'conflict', 'insult', 'anger'].includes(kind) && REAL_WORLD.test(value);
       return { kind: realConcern ? 'real' : kind, realConcern };
     }
   }
@@ -94,14 +102,13 @@ export function repetitionNotes(history) {
     notes.push(`Avoid these recently used action verbs: ${[...verbs.values()].slice(0, 8).join(', ')}.`);
   }
 
-  // Do not begin every reply with an action, or always with the same word.
+  // Vary where the action sits in the reply. Every reply keeps its action; only the order changes.
   const last3 = recentReplies(history, 3);
   const startsWithAction = last3.filter((r) => parseRoleplay(r.text)[0]?.[0]?.kind === 'action').length;
-  const containsAction = last3.filter((r) => parseRoleplay(r.text).some((line) => line.some((s) => s.kind === 'action'))).length;
-  if (last3.length === 3 && containsAction === 3) {
-    notes.push('Recent replies all used an action. This reply needs no action unless one is essential.');
-  } else if (last3.length >= 2 && startsWithAction >= 2) {
-    notes.push('Begin this reply with spoken words, not an action.');
+  if (last3.length >= 2 && startsWithAction === last3.length) {
+    notes.push('Open this reply with spoken words, then put the action after them.');
+  } else if (last3.length === 3 && startsWithAction === 0) {
+    notes.push('Open this reply with the action, then the spoken words.');
   }
 
   const openers = new Map();
@@ -142,6 +149,13 @@ export function personalityDirection(character, name) {
   return `${traits.map((k) => PERSONALITY_TRAITS[k].reaction).join(' ')} Keep this true to ${name}.`;
 }
 
+// How far touch may go in this reply. Romance is only allowed for confirmed adults with the level on.
+function contactLimit(character) {
+  return contentMode(character).mode === 'adult'
+    ? 'Keep it within the romance level set for this character.'
+    : 'Romance is off, so keep the response friendly and non-romantic, such as a laugh, a step back or a joke.';
+}
+
 // The full per-turn section placed in the system prompt, just before the length rule.
 // history: saved messages in order, ending with the user's latest message.
 export function turnSection(character, history) {
@@ -151,6 +165,9 @@ export function turnSection(character, history) {
   const lines = ['For this reply:'];
   lines.push(`- Situation: ${fill(DIRECTION[kind] ?? DIRECTION.neutral, name)}`);
   lines.push(`- Personality: ${personalityDirection(character, name)}`);
+  if (kind === 'contact') lines.push(`- Touch: ${contactLimit(character)}`);
+  // A real concern is answered plainly, outside the story, so no in-story action is asked for.
+  if (kind !== 'real') lines.push(`- Action: include one action in *asterisks*, showing ${name}'s body or face reacting to what just happened. Vary it.`);
   const hint = lengthHint(lastUser);
   if (hint) lines.push(`- Length: ${hint}`);
   for (const note of repetitionNotes(history)) lines.push(`- ${note}`);

@@ -1,7 +1,7 @@
 // Velora settings. Change values here; the rest of the app reads them from this file.
 
 export const APP_NAME = 'Velora';
-export const APP_VERSION = '1.3.1';
+export const APP_VERSION = '1.3.2';
 
 // The on-device AI library (WebLLM). It is loaded from a public CDN at this exact version,
 // so an update cannot change behaviour without you noticing. If the library stops loading,
@@ -177,9 +177,9 @@ export const PERSONALITY_TRAITS = {
 
 // Narration style: how much the character describes their own actions.
 export const ROLE_STYLES = {
-  balanced: { label: 'Balanced', instruction: 'Mostly dialogue, with a few short actions.' },
+  balanced: { label: 'Balanced', instruction: 'Dialogue with one short action in most replies.' },
   dramatic: { label: 'Vivid', instruction: 'Use a few more sensory actions and let the scene build.' },
-  direct: { label: 'Minimal', instruction: 'Keep actions minimal. Let your words carry the scene.' },
+  direct: { label: 'Minimal', instruction: 'Keep each action to a few words, but still include one in most replies. Let your words carry the scene.' },
 };
 
 // Romance levels, from the intensity slider (0 to 100). Only used for confirmed adults with a stated age of 18+.

@@ -582,9 +582,10 @@ test('the style guide asks the character not to mention being an AI unless asked
   assert.ok(identityLine('Mira').includes('You are not an assistant'));
 });
 
-test('replies are told to answer the latest message and to use actions only when they fit', () => {
+test('replies are told to answer the latest message and to include an action in almost every reply', () => {
   assert.ok(NATURAL_STYLE.includes('Respond to what the user just said or did first'));
-  assert.ok(NATURAL_STYLE.includes('Use an action only when it fits the moment'));
+  assert.ok(NATURAL_STYLE.includes('Almost every reply has at least one action'));
+  assert.ok(!NATURAL_STYLE.includes('Some replies need only speech'), 'the old no-action rule is gone');
 });
 
 console.log('\nNo artificial waiting');
@@ -847,13 +848,15 @@ test('recent actions are listed so the model does not repeat them', () => {
   assert.ok(notes.includes('smiles'));
 });
 
-test('when every recent reply used an action, the model is told to skip the action this time', () => {
+test('when recent replies all opened with an action, the model is told to open with speech instead, and still keep the action', () => {
   const history = [
     ai('*nods* "Sure."', '1'), you('a', '2'),
     ai('*sighs* "Fine."', '3'), you('b', '4'),
     ai('*shrugs* "Ok."', '5'), you('c', '6'),
   ];
-  assert.ok(repetitionNotes(history).some((n) => n.includes('needs no action')));
+  const notes = repetitionNotes(history);
+  assert.ok(notes.some((n) => n.includes('Open this reply with spoken words, then put the action after them')));
+  assert.ok(!notes.some((n) => n.includes('needs no action')), 'the skip-the-action rule is gone');
 });
 
 test('a reply that starts with the same word three times is told to start differently', () => {
@@ -914,6 +917,100 @@ test('a long chat\'s history and memories are still in the prompt after the rewr
   assert.ok(messages[0].content.includes('green tea'));
   assert.ok(messages[0].content.includes('They met at the library.'));
   assert.equal(messages.length, 4, 'system plus three history messages');
+});
+
+console.log('\nPhysical interactions and the action rule');
+
+const PHYSICAL_CASES = [
+  ['I try to grab her hand.', 'contact'],
+  ['I hug you tight.', 'contact'],
+  ['*reaches out and holds your hand*', 'contact'],
+  ['I suddenly punch the wall.', 'conflict'],
+  ['I kick the door open.', 'conflict'],
+  ['I shove you back against the wall.', 'conflict'],
+  ['I push past you and block the doorway.', 'conflict'],
+  ['I run away.', 'movement'],
+  ['I sit down by the window.', 'movement'],
+  ['I walk out and leave.', 'movement'],
+];
+test('every physical interaction in the brief is read as its own situation', () => {
+  for (const [text, kind] of PHYSICAL_CASES) assert.equal(classifyMessage(text).kind, kind, text);
+});
+test('a physical action is never read as a dramatic threat or a real-world concern', () => {
+  for (const [text] of PHYSICAL_CASES) {
+    const c = classifyMessage(text);
+    assert.equal(c.realConcern, false, text);
+    assert.notEqual(c.kind, 'threat', text);
+  }
+});
+test('a punch with a real-world marker is treated as a real concern, not as a story beat', () => {
+  const c = classifyMessage("I'm going to punch you for real, I know where you live.");
+  assert.equal(c.kind, 'real');
+  assert.equal(c.realConcern, true);
+});
+test('the per-reply section describes a punch with a limit on gore, and keeps the fight in the scene', () => {
+  const character = newCharacterRecord({ name: 'Mira' });
+  const section = turnSection(character, [you('I suddenly punch the wall.', '1')]);
+  assert.ok(section.includes('physical force'));
+  assert.ok(section.includes('not graphic'));
+  assert.ok(section.includes('Mira'));
+});
+test('a grab or hug is answered in character, and romance stays off for a character without it confirmed', () => {
+  const friendly = newCharacterRecord({ name: 'Lena' });
+  const grab = turnSection(friendly, [you('I try to grab her hand.', '1')]);
+  assert.ok(grab.includes('The user touched Lena'));
+  assert.ok(grab.includes('non-romantic'));
+  assert.ok(!grab.includes('romance level set'));
+});
+test('touch is kept within the romance level for a confirmed adult with romance on', () => {
+  const adult = newCharacterRecord({ name: 'Mira', ageGate: AGE_GATE.ADULT, statedAge: 29, romanceIntensity: 40 });
+  const hug = turnSection(adult, [you('I hug you tight.', '1')]);
+  assert.ok(hug.includes('romance level set for this character'));
+  assert.ok(!hug.includes('non-romantic'));
+});
+test('a movement such as running away is answered as the character noticing it', () => {
+  const character = newCharacterRecord({ name: 'Ada' });
+  const section = turnSection(character, [you('I run away.', '1')]);
+  assert.ok(section.includes('The user moved'));
+  assert.ok(section.includes('let them go'));
+});
+test('every reply, whatever the situation, asks for at least one action in asterisks', () => {
+  const character = newCharacterRecord({ name: 'Mira' });
+  const messages = [
+    'I try to grab her hand.', 'I suddenly punch the wall.', 'I run away.',
+    "I'm going to eliminate you.", 'Hi.', 'I feel so lonely today.', 'Where is the station?',
+  ];
+  for (const text of messages) {
+    const section = turnSection(character, [you(text, '1')]);
+    assert.ok(section.includes('include one action in *asterisks*'), text);
+  }
+});
+test('flirting and compliments are read as affection, and arguing words as an insult', () => {
+  assert.equal(classifyMessage('You look really nice tonight.').kind, 'affection');
+  assert.equal(classifyMessage("I told you, you're wrong and you know it.").kind, 'insult');
+});
+test('a real concern is answered plainly, so no in-story action is asked for', () => {
+  const character = newCharacterRecord({ name: 'Mira' });
+  const section = turnSection(character, [you('I want to end it all.', '1')]);
+  assert.ok(section.includes('may be a real concern'));
+  assert.ok(!section.includes('include one action'));
+});
+test('the scene rules tell the character to reply as itself, never as a support agent', () => {
+  const scene = sceneRules('Mira');
+  assert.ok(scene.includes('Reply as the character'));
+  assert.ok(scene.includes('no disclaimers or offers of help'));
+});
+test('the continuity rules ask the model to keep the physical scene consistent', () => {
+  assert.ok(CONTINUITY_RULES.includes('Remember the scene'));
+  assert.ok(CONTINUITY_RULES.includes('what each of you holds'));
+});
+test('three replies that all open with the same action make the model open with speech', () => {
+  const history = [
+    ai('*smiles* "Hi."', '1'), you('a', '2'),
+    ai('*smiles* "Hm."', '3'), you('b', '4'),
+    ai('*nods* "Ok."', '5'), you('c', '6'),
+  ];
+  assert.ok(repetitionNotes(history).some((n) => n.includes('spoken words')));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

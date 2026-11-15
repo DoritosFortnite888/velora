@@ -33,6 +33,30 @@ The stub AI library in the browser test returns fake replies. It proves Velora's
 - **Action formatting depends on the model using asterisks.** Velora shows *asterisk actions* in italics. If a model writes actions some other way, they appear as normal text.
 - **Velora cannot stop a model from narrating your actions.** Its style guide asks the model not to, but it may still do it.
 
+## Version 1.3.2: immersive roleplay
+
+**Read this first.** These changes shape what the model is asked to do. They do not change the model. Nothing here has been checked on a real model, so how well a model keeps actions, reacts to physical moves, or remembers a scene over a long chat is not proven.
+
+- **Actions are requested, not forced.** Each reply's direction asks for at least one action in asterisks. A small model may still leave the action out, or write it in another form. Velora does not add an action to a reply that lacks one.
+- **Physical moves are detected by word patterns.** A move written in other words, such as "I snatch at your fingers", may be read as neutral, and the model then reacts from the wording alone.
+- **Scene memory is in the prompt, not stored.** The model is asked to keep track of positions and held objects using the chat it can see. Only the recent messages and the summary are available, so a detail from far back may be lost.
+- **Fights are kept non-graphic by instruction only.** A small model may still write more violence than intended. Use Regenerate, or edit the character's instructions.
+- **The real-concern markers are still a short list**, as in 1.3.1. A real threat written without a marker may be read as fiction.
+
+### What was tested for version 1.3.2
+
+| Area | How it was checked |
+|---|---|
+| Hugging, holding or grabbing a hand, punching, kicking, shoving, running, walking off, sitting down | `npm test` (automatic) |
+| Physical moves are not read as threats or real concerns (unless a real-world marker is present) | `npm test` (automatic) |
+| Touch follows the romance rule (friendly or within the romance level) | `npm test` (automatic) |
+| Action line present for every kind of message | `npm test` (automatic) |
+| Repeated opening actions are varied; the action is kept | `npm test` (automatic) |
+| Prompt still fits the small-window test, with the safety rules last | `npm test` (automatic) |
+| **Real model acting on a grab, hug, punch, run or fight in character** | **Not tested.** |
+| **Real model keeping an action in almost every reply over a long chat** | **Not tested.** |
+| **Real model remembering positions and held objects through a chat** | **Not tested.** |
+
 ## Version 1.3.1: natural roleplay
 
 **Read this first.** These changes shape what the model is asked to do. They do not change the model itself. A small model can still ignore instructions, write generic replies, or repeat itself. Nothing in this version has been scored on a real model, so the roleplay quality is not proven.
